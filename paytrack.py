@@ -296,8 +296,5 @@ def main():
             register_page()
 
 if __name__ == "__main__":
-    main()page()
-
-if __name__ == "__main__":
     main()
 
