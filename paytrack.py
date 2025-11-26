@@ -287,19 +287,19 @@ def admin_dashboard():
         st.rerun()
 
 def main():
+    # 1. Initialize Session State
     if 'logged_in_user' not in st.session_state:
         st.session_state['logged_in_user'] = None
         
+    # 2. Routing Logic
     if st.session_state['logged_in_user']:
+        # User is logged in, check role
         if st.session_state['role'] == 'admin':
             admin_dashboard()
         else:
             user_dashboard()
     else:
-        # Route based on sidebar for Login/Register
-        # Note: Login page hides sidebar, Register shows it.
-        # Simple hack: Default to Login, add link to switch? 
-        # For simplicity with your requested design:
+        # User is NOT logged in, show Login/Register menu
         menu = st.sidebar.selectbox("Menu", ["Login", "Register"])
         if menu == "Login":
             login_page()
@@ -307,10 +307,4 @@ def main():
             register_page()
 
 if __name__ == "__main__":
-    main()
-        else:
-            user_dashboard()
-
-if __name__ == "__main__":
-
     main()
