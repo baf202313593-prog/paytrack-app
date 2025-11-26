@@ -64,18 +64,49 @@ def log_punch_out(user_id, date, time_out, normal_hours, ot_hours):
 def add_login_page_design():
     st.markdown("""
     <style>
+    /* 1. Main Background */
     .stApp {
-        background: linear-gradient(to bottom right, #e0f2f7, #ffffff);
+        background: linear-gradient(to bottom, #e3f2fd, #ffffff); /* Soft Blue to White */
     }
+    
+    /* 2. Remove top padding so logo sits higher */
+    .block-container {
+        padding-top: 3rem;
+    }
+
+    /* 3. Style the Input Boxes (Make them white and clean) */
     .stTextInput>div>div>input {
-        background-color: #f0f2f6; border: 1px solid #d0d2d6; border-radius: 8px; padding: 10px 15px;
+        background-color: #FFFFFF; /* Pure White */
+        border: 1px solid #d1d5db; /* Light subtle border */
+        border-radius: 8px; 
+        padding: 12px 15px;
+        color: #333;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05); /* Tiny shadow for depth */
     }
+    
+    /* 4. Style the Button (Full width, blue) */
     .stButton>button {
-        background-color: #f0f2f6; color: #555; border: 1px solid #d0d2d6; border-radius: 8px; padding: 10px 25px; width: 100%;
+        background-color: #2563eb; /* Professional Blue */
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 12px;
+        font-weight: 600;
+        width: 100%; /* Stretch across the form */
+        transition: 0.2s;
     }
-    .stButton>button:hover { background-color: #e0e2e6; }
-    /* Hide Sidebar on Login Page */
+    .stButton>button:hover {
+        background-color: #1d4ed8; /* Darker blue on hover */
+    }
+
+    /* Hide Sidebar */
     section[data-testid="stSidebar"] { display: none !important; }
+    
+    /* Hide the form border (Optional: makes it look cleaner) */
+    [data-testid="stForm"] {
+        border: none;
+        padding: 0;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -96,26 +127,35 @@ def add_cheerful_design():
 
 def login_page():
     add_login_page_design()
-    # 1. ADJUST COLUMNS: We use [3, 2, 3] to make the middle column smaller.
-    # This naturally limits the logo size while keeping high resolution.
-    col_left, col_center, col_right = st.columns([3, 2, 3])
     
-    with col_center:
+    # --- PART 1: LOGO (Keep it small) ---
+    # We use [3, 2, 3] to squeeze the logo so it doesn't look giant
+    c1, c2, c3 = st.columns([3, 2, 3])
+    with c2:
         try:
-            # 2. FIX INDENTATION: This line must be indented (tabbed) inside 'try'
             st.image("logo.png", use_container_width=True)
         except:
-            st.warning("Logo not found")
-            
+            pass
+
+    # --- PART 2: FORM (Make it wider) ---
+    # We use [1, 2, 1] here. This gives the form MORE space (50% of screen width)
+    # creating that nice "wide bar" look from your design.
+    col_left, col_center, col_right = st.columns([1, 2, 1])
+    
+    with col_center:
         with st.form("login_form"):
             st.write("")
-            user_id = st.text_input("User ID")
-            password = st.text_input("Password", type='password')
+            # Added placeholder text to mimic your design
+            user_id = st.text_input("User ID", placeholder="Enter your ID")
+            password = st.text_input("Password", type='password', placeholder="Enter your Password")
+            
+            st.write("") # Spacer
             submit = st.form_submit_button("Log In")
         
         if submit:
             try:
                 users = get_all_users()
+                # Simple check
                 valid_user = next((u for u in users if str(u['user_id']) == user_id and str(u['password']) == password), None)
                 
                 if valid_user:
@@ -128,11 +168,15 @@ def login_page():
             except Exception as e:
                 st.error(f"Connection Error: {e}")
         
-        st.write("")
-        st.write("---")
-        if st.button("No account? Create one here"):
-            st.session_state['auth_mode'] = 'register'
-            st.rerun()
+        # Spacer
+        st.write("") 
+        
+        # The "Create Account" link centered below
+        col_a, col_b, col_c = st.columns([1, 2, 1])
+        with col_b:
+            if st.button("No account? Create one"):
+                st.session_state['auth_mode'] = 'register'
+                st.rerun()
             
 def register_page():
     add_login_page_design() 
@@ -297,5 +341,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
