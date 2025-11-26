@@ -96,11 +96,13 @@ def add_cheerful_design():
 
 def login_page():
     add_login_page_design()
-    col_left, col_center, col_right = st.columns([1, 2, 1])
+    col_left, col_center, col_right = st.columns([3, 2, 3])
     
     with col_center:
         try:
-            st.image("logo.png", width=150)
+            # We remove the 'width' parameter so Streamlit loads the full quality image
+# We will control the size using the columns instead
+st.image("logo.png", use_container_width=True)
         except:
             st.warning("Logo not found")
             
@@ -294,3 +296,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
