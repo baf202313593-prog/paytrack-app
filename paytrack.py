@@ -1,68 +1,103 @@
 import streamlit as st
 import pandas as pd
-import sqlite3
 from datetime import datetime
 import time
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
-# --- 1. DATABASE SETUP ---
-DB_FILE = 'paytrack.db'
+# --- 1. GOOGLE SHEETS CONNECTION SETUP ---
+# We use Streamlit Secrets to handle the connection securely
+def get_db_connection():
+    # Define the scope
+    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+    
+    # Load credentials from Streamlit secrets
+    creds_dict = dict(st.secrets["gcp_service_account"])
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    
+    # Authorize client
+    client = gspread.authorize(creds)
+    
+    # Open the spreadsheet
+    # Make sure your Google Sheet is named EXACTLY "paytrack_db"
+    sheet = client.open("paytrack_db")
+    return sheet
 
-def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    
-    # Updated Users Table: Added 'ot_multiplier'
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            user_id TEXT PRIMARY KEY,
-            name TEXT,
-            age INTEGER,
-            email TEXT,
-            password TEXT,
-            role TEXT,
-            rate REAL,
-            ot_multiplier REAL, 
-            resume_path TEXT
-        )
-    ''')
-    
-    # Updated Attendance Table: Added 'overtime_hours'
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS attendance (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT,
-            date TEXT,
-            in_time TEXT,
-            out_time TEXT,
-            hours_worked REAL,
-            overtime_hours REAL,
-            FOREIGN KEY(user_id) REFERENCES users(user_id)
-        )
-    ''')
-    
-    # Create Admin if not exists (Default OT rate is 1.5x)
-    c.execute('SELECT * FROM users WHERE role="admin"')
-    if not c.fetchone():
-        c.execute('INSERT INTO users VALUES (?,?,?,?,?,?,?,?,?)', 
-                  ('admin', 'Administrator', 99, 'admin@paytrack.com', 'admin123', 'admin', 0.0, 1.5, None))
-        conn.commit()
-        
-    conn.close()
+# --- 2. DATABASE HELPER FUNCTIONS (No more SQL!) ---
 
-# --- 2. HELPER FUNCTIONS ---
-def run_query(query, params=(), fetch_data=False):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute(query, params)
+def get_all_users():
+    sheet = get_db_connection()
+    worksheet = sheet.worksheet("Users")
+    return worksheet.get_all_records()
+
+def add_new_user(user_data):
+    sheet = get_db_connection()
+    worksheet = sheet.worksheet("Users")
+    # user_data is a list: [id, name, age, email, pass, role, rate, ot, resume]
+    worksheet.append_row(user_data)
+
+def update_user_rate(user_id, new_rate, new_ot):
+    sheet = get_db_connection()
+    worksheet = sheet.worksheet("Users")
+    # Find the row with the user_id
+    cell = worksheet.find(user_id)
+    # Update Rate (Column 7) and OT (Column 8)
+    worksheet.update_cell(cell.row, 7, new_rate)
+    worksheet.update_cell(cell.row, 8, new_ot)
+
+def get_attendance_logs():
+    sheet = get_db_connection()
+    worksheet = sheet.worksheet("Attendance")
+    return worksheet.get_all_records()
+
+def log_punch_in(user_id, date, time_in):
+    sheet = get_db_connection()
+    worksheet = sheet.worksheet("Attendance")
+    # Generate a simple unique ID using timestamp
+    log_id = int(time.time())
+    # Columns: id, user_id, date, in_time, out_time, hours_worked, overtime_hours
+    worksheet.append_row([log_id, user_id, date, time_in, "", 0.0, 0.0])
+
+def log_punch_out(user_id, date, time_out, normal_hours, ot_hours):
+    sheet = get_db_connection()
+    worksheet = sheet.worksheet("Attendance")
+    data = worksheet.get_all_records()
     
-    if fetch_data:
-        data = c.fetchall()
-        conn.close()
-        return data
-    else:
-        conn.commit()
-        conn.close()
-        return None
+    # Find the row manually (Google Sheets doesn't have SQL WHERE)
+    row_index = -1
+    for i, row in enumerate(data):
+        # We look for the user, the date, and an empty out_time
+        # Note: gspread reads empty cells as empty strings ""
+        if str(row['user_id']) == str(user_id) and row['date'] == date and row['out_time'] == "":
+            row_index = i + 2 # +2 because logic is 0-indexed but Sheets is 1-indexed + 1 for header
+            break
+            
+    if row_index != -1:
+        # Update Out Time (Col 5), Hours (Col 6), OT (Col 7)
+        worksheet.update_cell(row_index, 5, time_out)
+        worksheet.update_cell(row_index, 6, normal_hours)
+        worksheet.update_cell(row_index, 7, ot_hours)
+        return True
+    return False
+
+# --- 3. DESIGN FUNCTIONS ---
+
+def add_login_page_design():
+    st.markdown("""
+    <style>
+    .stApp {
+        background: linear-gradient(to bottom right, #e0f2f7, #ffffff);
+    }
+    .stTextInput>div>div>input {
+        background-color: #f0f2f6; border: 1px solid #d0d2d6; border-radius: 8px; padding: 10px 15px;
+    }
+    .stButton>button {
+        background-color: #f0f2f6; color: #555; border: 1px solid #d0d2d6; border-radius: 8px; padding: 10px 25px;
+    }
+    .stButton>button:hover { background-color: #e0e2e6; }
+    section[data-testid="stSidebar"] { display: none !important; }
+    </style>
+    """, unsafe_allow_html=True)
 
 def add_cheerful_design():
     st.markdown("""
@@ -74,214 +109,208 @@ def add_cheerful_design():
     .stButton>button:hover { background-color: #FF5E62; transform: scale(1.05); color: white; }
     section[data-testid="stSidebar"] { background-color: #FFF5E1; }
     h1, h2, h3 { color: #FF6B6B; font-family: 'Comic Sans MS', 'Chalkboard SE', sans-serif; }
-    .stAlert { border-radius: 15px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. PAGE FUNCTIONS ---
+# --- 4. PAGE LOGIC ---
+
+def login_page():
+    add_login_page_design()
+    col_left, col_center, col_right = st.columns([1, 2, 1])
+    
+    with col_center:
+        # Ensure logo.png is in your folder!
+        try:
+            st.image("logo.png", width=150)
+        except:
+            st.warning("Logo not found")
+            
+        with st.form("login_form"):
+            st.write("")
+            user_id = st.text_input("User ID")
+            password = st.text_input("Password", type='password')
+            submit = st.form_submit_button("Log In")
+        
+        if submit:
+            try:
+                users = get_all_users()
+                # Find user in list of dicts
+                valid_user = next((u for u in users if str(u['user_id']) == user_id and str(u['password']) == password), None)
+                
+                if valid_user:
+                    st.session_state['logged_in_user'] = valid_user['user_id']
+                    st.session_state['role'] = valid_user['role']
+                    st.session_state['user_name'] = valid_user['name']
+                    st.rerun()
+                else:
+                    st.error("Invalid credentials")
+            except Exception as e:
+                st.error(f"Connection Error: {e}")
 
 def register_page():
     add_cheerful_design()
     st.header("📝 Join the Team!")
-    
-    with st.form("register_form"):
+    with st.form("reg"):
         name = st.text_input("Name")
-        age = st.number_input("Age", min_value=18, step=1)
+        age = st.number_input("Age", min_value=18)
         email = st.text_input("Email")
-        new_id = st.text_input("Create ID (Unique)")
-        new_pass = st.text_input("Create Password", type='password')
-        resume = st.file_uploader("Upload Resume (Optional)", type=['pdf', 'docx'])
-        submit = st.form_submit_button("Register")
+        uid = st.text_input("Create ID")
+        pas = st.text_input("Password", type='password')
+        resume = st.file_uploader("Resume")
+        sub = st.form_submit_button("Register")
         
-        if submit:
-            existing = run_query("SELECT * FROM users WHERE user_id=?", (new_id,), fetch_data=True)
-            if existing:
-                st.error("ID taken!")
-            elif not new_id or not new_pass:
-                st.warning("ID/Password required.")
+        if sub:
+            users = get_all_users()
+            if any(str(u['user_id']) == uid for u in users):
+                st.error("ID Exists")
             else:
-                resume_status = "Uploaded" if resume else "None"
-                # Default Rate: $10, Default OT Multiplier: 1.5x
-                run_query("INSERT INTO users VALUES (?,?,?,?,?,?,?,?,?)",
-                          (new_id, name, age, email, new_pass, 'user', 10.0, 1.5, resume_status))
-                st.success("Success! Please Login.")
-
-def login_page():
-    add_cheerful_design()
-    st.header("🔐 Login to Paytrack")
-    
-    user_id = st.text_input("User ID")
-    password = st.text_input("Password", type='password')
-    
-    if st.button("Log In"):
-        user = run_query("SELECT * FROM users WHERE user_id=? AND password=?", (user_id, password), fetch_data=True)
-        if user:
-            user_data = user[0] 
-            st.session_state['logged_in_user'] = user_data[0] # user_id
-            st.session_state['role'] = user_data[5] # role
-            st.session_state['user_name'] = user_data[1] # name
-            st.rerun()
-        else:
-            st.error("Invalid ID or Password")
+                # Add to Google Sheet
+                add_new_user([uid, name, age, email, pas, 'user', 10.0, 1.5, "Uploaded" if resume else "None"])
+                st.success("Registered! Go to Login.")
 
 def user_dashboard():
     add_cheerful_design()
-    u_id = st.session_state['logged_in_user']
-    u_name = st.session_state['user_name']
+    uid = st.session_state['logged_in_user']
+    name = st.session_state['user_name']
     
-    # Fetch user rate and OT multiplier
-    user_info = run_query("SELECT rate, ot_multiplier FROM users WHERE user_id=?", (u_id,), fetch_data=True)
-    rate = user_info[0][0] if user_info else 0.0
-    ot_mult = user_info[0][1] if user_info else 1.5
+    # Get user details for rate
+    all_users = get_all_users()
+    user_data = next((u for u in all_users if str(u['user_id']) == uid), None)
+    rate = float(user_data['rate']) if user_data else 0.0
+    ot_mult = float(user_data['ot_multiplier']) if user_data else 1.5
 
-    st.title(f"🌞 Good Morning, {u_name}!")
+    st.title(f"🌞 Hi, {name}!")
     
     col1, col2 = st.columns(2)
     today = datetime.now().strftime("%Y-%m-%d")
     now_time = datetime.now().strftime("%H:%M:%S")
 
-    # --- PUNCH IN ---
     with col1:
         if st.button("🚀 PUNCH IN"):
-            existing_log = run_query("SELECT * FROM attendance WHERE user_id=? AND date=? AND out_time IS NULL", (u_id, today), fetch_data=True)
-            if existing_log:
-                st.warning("Already working! 💪")
+            logs = get_attendance_logs()
+            # Check if already punched in
+            active = any(str(l['user_id']) == str(uid) and l['date'] == today and l['out_time'] == "" for l in logs)
+            
+            if active:
+                st.warning("Already working!")
             else:
-                run_query("INSERT INTO attendance (user_id, date, in_time) VALUES (?,?,?)", (u_id, today, now_time))
-                st.success(f"Clocked in at {now_time}")
+                log_punch_in(uid, today, now_time)
+                st.success("Clocked In!")
 
-    # --- PUNCH OUT (WITH OVERTIME LOGIC) ---
     with col2:
         if st.button("🎉 PUNCH OUT"):
-            open_log = run_query("SELECT id, in_time FROM attendance WHERE user_id=? AND date=? AND out_time IS NULL", (u_id, today), fetch_data=True)
-            if open_log:
-                log_id = open_log[0][0]
-                t_in = datetime.strptime(open_log[0][1], "%H:%M:%S")
-                t_out = datetime.strptime(now_time, "%H:%M:%S")
+            success = False
+            # Calculate hours logic handled inside log_punch_out somewhat, but we need time delta first
+            # Re-fetch for calculation
+            logs = get_attendance_logs()
+            entry = next((l for l in logs if str(l['user_id']) == str(uid) and l['date'] == today and l['out_time'] == ""), None)
+            
+            if entry:
+                fmt = "%H:%M:%S"
+                t_in = datetime.strptime(entry['in_time'], fmt)
+                t_out = datetime.strptime(now_time, fmt)
+                total = (t_out - t_in).total_seconds() / 3600
                 
-                # Calculate Duration
-                total_hours = (t_out - t_in).total_seconds() / 3600
+                norm = 8.0 if total > 8 else total
+                ot = total - 8.0 if total > 8 else 0.0
                 
-                # ⚡ OVERTIME LOGIC ⚡
-                if total_hours > 8.0:
-                    normal_hours = 8.0
-                    ot_hours = total_hours - 8.0
-                    msg = f"Wow! You worked {ot_hours:.2f} hours Overtime! 💸"
-                else:
-                    normal_hours = total_hours
-                    ot_hours = 0.0
-                    msg = "Good job today!"
-
-                run_query("UPDATE attendance SET out_time=?, hours_worked=?, overtime_hours=? WHERE id=?", 
-                          (now_time, round(normal_hours, 2), round(ot_hours, 2), log_id))
-                
+                log_punch_out(uid, today, now_time, round(norm, 2), round(ot, 2))
                 st.balloons()
-                st.success(f"{msg} (Total: {total_hours:.2f} hrs)")
+                st.success("Clocked Out!")
             else:
-                st.warning("You haven't punched in yet.")
+                st.warning("Not clocked in.")
 
     st.divider()
-    
-    # --- STATISTICS ---
-    st.subheader("📊 Your Earnings (Including Overtime)")
-    logs = run_query("SELECT date, in_time, out_time, hours_worked, overtime_hours FROM attendance WHERE user_id=?", (u_id,), fetch_data=True)
-    
-    if logs:
-        # Create Dataframe
-        df = pd.DataFrame(logs, columns=['Date', 'In', 'Out', 'Normal Hrs', 'OT Hrs'])
-        
-        # Calculate Salary per row
-        # Salary = (Normal * Rate) + (OT * Rate * Multiplier)
-        df['Daily Pay'] = (df['Normal Hrs'] * rate) + (df['OT Hrs'] * rate * ot_mult)
-        
-        st.dataframe(df, use_container_width=True)
-        
-        total_normal = df['Normal Hrs'].sum()
-        total_ot = df['OT Hrs'].sum()
-        total_pay = df['Daily Pay'].sum()
-        
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Normal Hours", f"{total_normal:.2f}")
-        c2.metric("Overtime Hours", f"{total_ot:.2f}", delta="x " + str(ot_mult) + " rate")
-        c3.metric("Total Salary", f"${total_pay:,.2f} 💰")
-    else:
-        st.info("No work history yet.")
+    st.subheader("Your History")
+    # Show dataframe
+    logs = get_attendance_logs()
+    my_logs = [l for l in logs if str(l['user_id']) == str(uid)]
+    if my_logs:
+        df = pd.DataFrame(my_logs)
+        # Calculate Pay
+        df['Pay'] = (df['hours_worked'] * rate) + (df['overtime_hours'] * rate * ot_mult)
+        st.dataframe(df[['date', 'in_time', 'out_time', 'hours_worked', 'overtime_hours', 'Pay']])
+        st.metric("Total Earned", f"${df['Pay'].sum():,.2f}")
 
-    if st.button("👋 Log Out"):
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
+    if st.button("Logout"):
+        st.session_state.clear()
         st.rerun()
 
 def admin_dashboard():
     add_cheerful_design()
     st.title("Admin Panel")
     
-    employees = run_query("SELECT user_id, name, rate, ot_multiplier FROM users WHERE role='user'", fetch_data=True)
+    # Get Data
+    users = get_all_users()
+    logs = get_attendance_logs()
     
-    if employees:
-        st.subheader("Employee Payroll Summary")
-        summary_data = []
+    # Filter only 'user' role
+    employees = [u for u in users if u['role'] == 'user']
+    
+    summary = []
+    for e in employees:
+        eid = str(e['user_id'])
+        # Filter logs for this user
+        u_logs = [l for l in logs if str(l['user_id']) == eid]
         
-        for emp in employees:
-            eid, ename, erate, e_ot_mult = emp
-            
-            # Fetch sums
-            stats = run_query("SELECT SUM(hours_worked), SUM(overtime_hours) FROM attendance WHERE user_id=?", (eid,), fetch_data=True)
-            t_norm = stats[0][0] if stats[0][0] else 0.0
-            t_ot = stats[0][1] if stats[0][1] else 0.0
-            
-            salary = (t_norm * erate) + (t_ot * erate * e_ot_mult)
-            
-            summary_data.append([eid, ename, erate, e_ot_mult, t_norm, t_ot, salary])
-            
-        df_admin = pd.DataFrame(summary_data, columns=['ID', 'Name', 'Base Rate', 'OT Multiplier', 'Normal Hrs', 'OT Hrs', 'Total Pay'])
-        st.dataframe(df_admin)
+        t_norm = sum(l['hours_worked'] for l in u_logs if l['hours_worked'])
+        t_ot = sum(l['overtime_hours'] for l in u_logs if l['overtime_hours'])
         
-        st.divider()
+        rate = float(e['rate'])
+        ot_m = float(e['ot_multiplier'])
         
-        # --- ADJUST RATES ---
-        st.subheader("💰 Adjust Salary & Overtime")
-        colA, colB, colC = st.columns(3)
+        pay = (t_norm * rate) + (t_ot * rate * ot_m)
+        summary.append([eid, e['name'], rate, ot_m, t_norm, t_ot, pay])
         
-        with colA:
-            target_id = st.selectbox("Select Employee", [e[0] for e in employees])
-        with colB:
-            new_rate = st.number_input("Base Hourly Rate ($)", min_value=0.0, step=0.5)
-        with colC:
-            new_ot_mult = st.number_input("OT Multiplier (e.g. 1.5)", min_value=1.0, step=0.1, value=1.5)
-            
-        if st.button("Update Employee Compensation"):
-            run_query("UPDATE users SET rate=?, ot_multiplier=? WHERE user_id=?", (new_rate, new_ot_mult, target_id))
-            st.success(f"Updated compensation for {target_id}")
-            time.sleep(1)
-            st.rerun()
-    else:
-        st.info("No employees found.")
-
-    if st.button("Log Out"):
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
+    df = pd.DataFrame(summary, columns=['ID', 'Name', 'Rate', 'OT x', 'Norm Hrs', 'OT Hrs', 'Pay'])
+    st.dataframe(df)
+    
+    st.divider()
+    st.subheader("Update Salary")
+    
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        target = st.selectbox("Employee", [e['ID'] for e in summary])
+    with c2:
+        nr = st.number_input("New Rate", value=10.0)
+    with c3:
+        not_m = st.number_input("New OT Multiplier", value=1.5)
+        
+    if st.button("Update"):
+        update_user_rate(target, nr, not_m)
+        st.success("Updated!")
+        time.sleep(1)
         st.rerun()
 
-# --- 4. MAIN APP ---
+    if st.button("Logout"):
+        st.session_state.clear()
+        st.rerun()
+
 def main():
-    init_db()
-    
     if 'logged_in_user' not in st.session_state:
         st.session_state['logged_in_user'] = None
-
-    if st.session_state['logged_in_user'] is None:
-        # Simple Sidebar Menu
+        
+    if st.session_state['logged_in_user']:
+        if st.session_state['role'] == 'admin':
+            admin_dashboard()
+        else:
+            user_dashboard()
+    else:
+        # Route based on sidebar for Login/Register
+        # Note: Login page hides sidebar, Register shows it.
+        # Simple hack: Default to Login, add link to switch? 
+        # For simplicity with your requested design:
         menu = st.sidebar.selectbox("Menu", ["Login", "Register"])
         if menu == "Login":
             login_page()
         else:
             register_page()
-    else:
-        if st.session_state['role'] == 'admin':
-            admin_dashboard()
+
+if __name__ == "__main__":
+    main()
         else:
             user_dashboard()
 
 if __name__ == "__main__":
+
     main()
