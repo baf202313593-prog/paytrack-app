@@ -96,13 +96,14 @@ def add_cheerful_design():
 
 def login_page():
     add_login_page_design()
+    # 1. ADJUST COLUMNS: We use [3, 2, 3] to make the middle column smaller.
+    # This naturally limits the logo size while keeping high resolution.
     col_left, col_center, col_right = st.columns([3, 2, 3])
     
     with col_center:
         try:
-            # We remove the 'width' parameter so Streamlit loads the full quality image
-# We will control the size using the columns instead
-st.image("logo.png", use_container_width=True)
+            # 2. FIX INDENTATION: This line must be indented (tabbed) inside 'try'
+            st.image("logo.png", use_container_width=True)
         except:
             st.warning("Logo not found")
             
@@ -132,7 +133,7 @@ st.image("logo.png", use_container_width=True)
         if st.button("No account? Create one here"):
             st.session_state['auth_mode'] = 'register'
             st.rerun()
-
+            
 def register_page():
     add_login_page_design() 
     
@@ -296,4 +297,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
