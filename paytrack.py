@@ -66,46 +66,33 @@ def add_login_page_design():
     <style>
     /* 1. Main Background */
     .stApp {
-        background: linear-gradient(to bottom, #e3f2fd, #ffffff); /* Soft Blue to White */
+        background: linear-gradient(to bottom, #e3f2fd, #ffffff);
     }
     
-    /* 2. Remove top padding so logo sits higher */
+    /* 2. Remove top padding */
     .block-container {
         padding-top: 3rem;
     }
 
-    /* 3. Style the Input Boxes (Make them white and clean) */
+    /* 3. Style the Input Boxes */
     .stTextInput>div>div>input {
-        background-color: #FFFFFF; /* Pure White */
-        border: 1px solid #d1d5db; /* Light subtle border */
+        background-color: #FFFFFF;
+        border: 1px solid #d1d5db;
         border-radius: 8px; 
         padding: 12px 15px;
         color: #333;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.05); /* Tiny shadow for depth */
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
     }
     
-    /* 4. Style the Button (Full width, blue) */
-    .stButton>button {
-        background-color: #2563eb; /* Professional Blue */
-        color: white;
-        border: none;
-        border-radius: 8px;
-        padding: 12px;
-        font-weight: 600;
-        width: 100%; /* Stretch across the form */
-        transition: 0.2s;
-    }
-    .stButton>button:hover {
-        background-color: #1d4ed8; /* Darker blue on hover */
-    }
-
-    /* Hide Sidebar */
+    /* 4. Hide Sidebar */
     section[data-testid="stSidebar"] { display: none !important; }
     
-    /* Hide the form border (Optional: makes it look cleaner) */
-    [data-testid="stForm"] {
-        border: none;
-        padding: 0;
+    /* 5. Generic Button Tweaks (We let Streamlit handle colors now) */
+    .stButton>button {
+        width: 100%; /* Make button fill its column */
+        border-radius: 8px;
+        height: 45px; /* Fixed height so both buttons match */
+        font-weight: 600;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -128,8 +115,7 @@ def add_cheerful_design():
 def login_page():
     add_login_page_design()
     
-    # --- PART 1: LOGO (Keep it small) ---
-    # We use [3, 2, 3] to squeeze the logo so it doesn't look giant
+    # Logo Section
     c1, c2, c3 = st.columns([3, 2, 3])
     with c2:
         try:
@@ -137,44 +123,39 @@ def login_page():
         except:
             pass
 
-    # --- PART 2: FORM (Make it wider) ---
-    # We use [1, 2, 1] here. This gives the form MORE space (50% of screen width)
-    # creating that nice "wide bar" look from your design.
+    # Login Form Section
     col_left, col_center, col_right = st.columns([1, 2, 1])
     
     with col_center:
-        with st.form("login_form"):
-            st.write("")
-            # Added placeholder text to mimic your design
-            user_id = st.text_input("User ID", placeholder="Enter your ID")
-            password = st.text_input("Password", type='password', placeholder="Enter your Password")
-            
-            st.write("") # Spacer
-            submit = st.form_submit_button("Log In")
-        
-        if submit:
-            try:
-                users = get_all_users()
-                # Simple check
-                valid_user = next((u for u in users if str(u['user_id']) == user_id and str(u['password']) == password), None)
-                
-                if valid_user:
-                    st.session_state['logged_in_user'] = valid_user['user_id']
-                    st.session_state['role'] = valid_user['role']
-                    st.session_state['user_name'] = valid_user['name']
-                    st.rerun()
-                else:
-                    st.error("Invalid credentials")
-            except Exception as e:
-                st.error(f"Connection Error: {e}")
-        
-        # Spacer
+        st.write("")
+        # Inputs (No st.form wrapper anymore)
+        user_id = st.text_input("User ID", placeholder="Enter your ID")
+        password = st.text_input("Password", type='password', placeholder="Enter your Password")
         st.write("") 
         
-        # The "Create Account" link centered below
-        col_a, col_b, col_c = st.columns([1, 2, 1])
-        with col_b:
-            if st.button("No account? Create one"):
+        # --- NEW: Side-by-Side Buttons ---
+        b_col1, b_col2 = st.columns(2, gap="small")
+        
+        with b_col1:
+            # "type='primary'" makes this button Blue/Highlighted
+            if st.button("Log In", type="primary"):
+                try:
+                    users = get_all_users()
+                    valid_user = next((u for u in users if str(u['user_id']) == user_id and str(u['password']) == password), None)
+                    
+                    if valid_user:
+                        st.session_state['logged_in_user'] = valid_user['user_id']
+                        st.session_state['role'] = valid_user['role']
+                        st.session_state['user_name'] = valid_user['name']
+                        st.rerun()
+                    else:
+                        st.error("Invalid credentials")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+        
+        with b_col2:
+            # Regular button for Register
+            if st.button("Register"):
                 st.session_state['auth_mode'] = 'register'
                 st.rerun()
             
@@ -341,6 +322,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
