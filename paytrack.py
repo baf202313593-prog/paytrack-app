@@ -127,13 +127,11 @@ def login_page():
         
         st.write("")
         st.write("---")
-        # Navigation Button to Register
         if st.button("No account? Create one here"):
             st.session_state['auth_mode'] = 'register'
             st.rerun()
 
 def register_page():
-    # Use login design for register too, so it looks consistent without sidebar
     add_login_page_design() 
     
     col_left, col_center, col_right = st.columns([1, 2, 1])
@@ -157,7 +155,6 @@ def register_page():
                     st.success("Registered! Go to Login.")
         
         st.write("")
-        # Navigation Button back to Login
         if st.button("Back to Login"):
             st.session_state['auth_mode'] = 'login'
             st.rerun()
@@ -215,8 +212,12 @@ def user_dashboard():
     if my_logs:
         df = pd.DataFrame(my_logs)
         df['Pay'] = (df['hours_worked'] * rate) + (df['overtime_hours'] * rate * ot_mult)
+        
+        # Display DataFrame
         st.dataframe(df[['date', 'in_time', 'out_time', 'hours_worked', 'overtime_hours', 'Pay']])
-        st.metric("Total Earned", f"${df['Pay'].sum():,.2f}")
+        
+        # --- CURRENCY CHANGE HERE ---
+        st.metric("Total Earned", f"RM {df['Pay'].sum():,.2f}") 
 
     if st.button("Logout"):
         st.session_state.clear()
@@ -245,7 +246,7 @@ def admin_dashboard():
         pay = (t_norm * rate) + (t_ot * rate * ot_m)
         summary.append([eid, e['name'], rate, ot_m, t_norm, t_ot, pay])
         
-    df = pd.DataFrame(summary, columns=['ID', 'Name', 'Rate', 'OT x', 'Norm Hrs', 'OT Hrs', 'Pay'])
+    df = pd.DataFrame(summary, columns=['ID', 'Name', 'Rate', 'OT x', 'Norm Hrs', 'OT Hrs', 'Pay (RM)'])
     st.dataframe(df)
     
     st.divider()
@@ -258,7 +259,8 @@ def admin_dashboard():
         else:
             target = None
     with c2:
-        nr = st.number_input("New Rate", value=10.0)
+        # --- CURRENCY LABEL CHANGE HERE ---
+        nr = st.number_input("New Rate (RM)", value=10.0)
     with c3:
         not_m = st.number_input("New OT Multiplier", value=1.5)
         
@@ -274,22 +276,17 @@ def admin_dashboard():
         st.rerun()
 
 def main():
-    # 1. Initialize State
     if 'logged_in_user' not in st.session_state:
         st.session_state['logged_in_user'] = None
     if 'auth_mode' not in st.session_state:
-        st.session_state['auth_mode'] = 'login' # 'login' or 'register'
+        st.session_state['auth_mode'] = 'login'
 
-    # 2. Routing
     if st.session_state['logged_in_user']:
-        # User is logged in
         if st.session_state['role'] == 'admin':
             admin_dashboard()
         else:
             user_dashboard()
     else:
-        # User is NOT logged in
-        # We check the variable 'auth_mode' to see which function to run
         if st.session_state['auth_mode'] == 'login':
             login_page()
         else:
@@ -297,4 +294,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
