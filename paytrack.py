@@ -165,12 +165,25 @@ def user_dashboard():
     uid = st.session_state['logged_in_user']
     name = st.session_state['user_name']
     
+    # Fetch Data
     all_users = get_all_users()
     user_data = next((u for u in all_users if str(u['user_id']) == uid), None)
-    rate = float(user_data['rate']) if user_data else 0.0
-    ot_mult = float(user_data['ot_multiplier']) if user_data else 1.5
+    
+    # --- DEBUGGING: PRINT VALUES TO SCREEN ---
+    # This ensures no crashes if fields are empty
+    try:
+        rate = float(user_data.get('rate', 0.0)) if user_data else 0.0
+        ot_mult = float(user_data.get('ot_multiplier', 1.5)) if user_data else 1.5
+    except ValueError:
+        st.error("Error: Check your Google Sheet! Ensure 'rate' and 'ot_multiplier' are NUMBERS only.")
+        rate = 0.0
+        ot_mult = 1.5
 
     st.title(f"🌞 Hi, {name}!")
+    
+    # --- DEBUG BOX (You can remove this later) ---
+    st.info(f"🕵️ DEBUG: System detects your Rate = RM {rate} | OT Multiplier = {ot_mult}x")
+    # ---------------------------------------------
     
     col1, col2 = st.columns(2)
     today = datetime.now().strftime("%Y-%m-%d")
@@ -210,9 +223,18 @@ def user_dashboard():
     st.subheader("Your History")
     logs = get_attendance_logs()
     my_logs = [l for l in logs if str(l['user_id']) == str(uid)]
+    
     if my_logs:
         df = pd.DataFrame(my_logs)
+        
+        # --- ROBUST MATH FIX ---
+        # 1. Convert columns to numbers (in case Google Sheets sent text)
+        df['hours_worked'] = pd.to_numeric(df['hours_worked'], errors='coerce').fillna(0)
+        df['overtime_hours'] = pd.to_numeric(df['overtime_hours'], errors='coerce').fillna(0)
+        
+        # 2. Calculate
         df['Pay'] = (df['hours_worked'] * rate) + (df['overtime_hours'] * rate * ot_mult)
+        
         st.dataframe(df[['date', 'in_time', 'out_time', 'hours_worked', 'overtime_hours', 'Pay']])
         st.metric("Total Earned", f"RM {df['Pay'].sum():,.2f}") 
 
@@ -313,6 +335,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
