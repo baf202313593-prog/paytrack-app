@@ -163,27 +163,48 @@ def register_page():
 def user_dashboard():
     add_cheerful_design()
     uid = st.session_state['logged_in_user']
-    name = st.session_state['user_name']
     
     # Fetch Data
     all_users = get_all_users()
+    
+    # --- X-RAY DIAGNOSTICS: FIND THE USER ---
+    st.write(f"🔍 Searching for user ID: **{uid}**...")
+    
+    # 1. Print ALL headers found in Google Sheets
+    if len(all_users) > 0:
+        found_headers = list(all_users[0].keys())
+        st.write("📋 **Headers found in Google Sheet:**", found_headers)
+        
+        # Check if 'rate' exists exactly
+        if 'rate' not in found_headers:
+            st.error("❌ CRITICAL ERROR: The app cannot find a column named 'rate'. Did you name it 'Rate' (Capital R) or 'rate ' (with a space)?")
+    else:
+        st.error("❌ Google Sheet appears empty!")
+
+    # 2. Find the specific user
     user_data = next((u for u in all_users if str(u['user_id']) == uid), None)
     
-    # --- DEBUGGING: PRINT VALUES TO SCREEN ---
-    # This ensures no crashes if fields are empty
-    try:
-        rate = float(user_data.get('rate', 0.0)) if user_data else 0.0
-        ot_mult = float(user_data.get('ot_multiplier', 1.5)) if user_data else 1.5
-    except ValueError:
-        st.error("Error: Check your Google Sheet! Ensure 'rate' and 'ot_multiplier' are NUMBERS only.")
+    if user_data:
+        st.success(f"✅ Found user data: {user_data}")
+        # Try to extract rate
+        raw_rate = user_data.get('rate', 'MISSING')
+        st.info(f"💰 Raw Rate value in Sheet: {raw_rate}")
+        
+        try:
+            rate = float(raw_rate)
+            ot_mult = float(user_data.get('ot_multiplier', 1.5))
+        except:
+            rate = 0.0
+            ot_mult = 1.5
+            st.warning("⚠️ Could not convert rate to number. Check if it has text like 'RM' in it.")
+    else:
+        st.error("❌ User not found in database rows.")
         rate = 0.0
         ot_mult = 1.5
-
-    st.title(f"🌞 Hi, {name}!")
-    
-    # --- DEBUG BOX (You can remove this later) ---
-    st.info(f"🕵️ DEBUG: System detects your Rate = RM {rate} | OT Multiplier = {ot_mult}x")
+        
     # ---------------------------------------------
+    
+    st.title(f"🌞 Hi, {st.session_state.get('user_name', 'User')}!")
     
     col1, col2 = st.columns(2)
     today = datetime.now().strftime("%Y-%m-%d")
@@ -226,13 +247,8 @@ def user_dashboard():
     
     if my_logs:
         df = pd.DataFrame(my_logs)
-        
-        # --- ROBUST MATH FIX ---
-        # 1. Convert columns to numbers (in case Google Sheets sent text)
         df['hours_worked'] = pd.to_numeric(df['hours_worked'], errors='coerce').fillna(0)
         df['overtime_hours'] = pd.to_numeric(df['overtime_hours'], errors='coerce').fillna(0)
-        
-        # 2. Calculate
         df['Pay'] = (df['hours_worked'] * rate) + (df['overtime_hours'] * rate * ot_mult)
         
         st.dataframe(df[['date', 'in_time', 'out_time', 'hours_worked', 'overtime_hours', 'Pay']])
@@ -241,7 +257,6 @@ def user_dashboard():
     if st.button("Logout"):
         st.session_state.clear()
         st.rerun()
-
 def admin_dashboard():
     add_cheerful_design()
     st.title("Admin Panel")
@@ -335,6 +350,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
