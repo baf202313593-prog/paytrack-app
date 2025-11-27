@@ -64,36 +64,15 @@ def log_punch_out(user_id, date, time_out, normal_hours, ot_hours):
 def add_login_page_design():
     st.markdown("""
     <style>
-    /* 1. Main Background */
     .stApp {
         background: linear-gradient(to bottom, #e3f2fd, #ffffff);
     }
-    
-    /* 2. Remove top padding */
-    .block-container {
-        padding-top: 3rem;
-    }
-
-    /* 3. Style the Input Boxes */
+    .block-container { padding-top: 3rem; }
     .stTextInput>div>div>input {
-        background-color: #FFFFFF;
-        border: 1px solid #d1d5db;
-        border-radius: 8px; 
-        padding: 12px 15px;
-        color: #333;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        background-color: #FFFFFF; border: 1px solid #d1d5db; border-radius: 8px; padding: 12px 15px; color: #333; box-shadow: 0 1px 2px rgba(0,0,0,0.05);
     }
-    
-    /* 4. Hide Sidebar */
     section[data-testid="stSidebar"] { display: none !important; }
-    
-    /* 5. Generic Button Tweaks (We let Streamlit handle colors now) */
-    .stButton>button {
-        width: 100%; /* Make button fill its column */
-        border-radius: 8px;
-        height: 45px; /* Fixed height so both buttons match */
-        font-weight: 600;
-    }
+    .stButton>button { width: 100%; border-radius: 8px; height: 45px; font-weight: 600; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -115,7 +94,7 @@ def add_cheerful_design():
 def login_page():
     add_login_page_design()
     
-    # Logo Section
+    # Logo
     c1, c2, c3 = st.columns([3, 2, 3])
     with c2:
         try:
@@ -123,26 +102,20 @@ def login_page():
         except:
             pass
 
-    # Login Form Section
+    # Form
     col_left, col_center, col_right = st.columns([1, 2, 1])
-    
     with col_center:
         st.write("")
-        # Inputs (No st.form wrapper anymore)
         user_id = st.text_input("User ID", placeholder="Enter your ID")
         password = st.text_input("Password", type='password', placeholder="Enter your Password")
         st.write("") 
         
-        # --- NEW: Side-by-Side Buttons ---
         b_col1, b_col2 = st.columns(2, gap="small")
-        
         with b_col1:
-            # "type='primary'" makes this button Blue/Highlighted
             if st.button("Log In", type="primary"):
                 try:
                     users = get_all_users()
                     valid_user = next((u for u in users if str(u['user_id']) == user_id and str(u['password']) == password), None)
-                    
                     if valid_user:
                         st.session_state['logged_in_user'] = valid_user['user_id']
                         st.session_state['role'] = valid_user['role']
@@ -152,19 +125,18 @@ def login_page():
                         st.error("Invalid credentials")
                 except Exception as e:
                     st.error(f"Error: {e}")
-        
         with b_col2:
-            # Regular button for Register
             if st.button("Register"):
                 st.session_state['auth_mode'] = 'register'
                 st.rerun()
-            
+
 def register_page():
     add_login_page_design() 
     
     col_left, col_center, col_right = st.columns([1, 2, 1])
     with col_center:
         st.header("📝 Join the Team!")
+        # We use a form here to keep it tidy
         with st.form("reg"):
             name = st.text_input("Name")
             age = st.number_input("Age", min_value=18)
@@ -172,7 +144,8 @@ def register_page():
             uid = st.text_input("Create ID")
             pas = st.text_input("Password", type='password')
             resume = st.file_uploader("Resume")
-            sub = st.form_submit_button("Register")
+            st.write("")
+            sub = st.form_submit_button("Create Account")
             
             if sub:
                 users = get_all_users()
@@ -240,11 +213,7 @@ def user_dashboard():
     if my_logs:
         df = pd.DataFrame(my_logs)
         df['Pay'] = (df['hours_worked'] * rate) + (df['overtime_hours'] * rate * ot_mult)
-        
-        # Display DataFrame
         st.dataframe(df[['date', 'in_time', 'out_time', 'hours_worked', 'overtime_hours', 'Pay']])
-        
-        # --- CURRENCY CHANGE HERE ---
         st.metric("Total Earned", f"RM {df['Pay'].sum():,.2f}") 
 
     if st.button("Logout"):
@@ -275,11 +244,34 @@ def admin_dashboard():
         summary.append([eid, e['name'], rate, ot_m, t_norm, t_ot, pay])
         
     df = pd.DataFrame(summary, columns=['ID', 'Name', 'Rate', 'OT x', 'Norm Hrs', 'OT Hrs', 'Pay (RM)'])
+    
+    # 1. Show the Data Table
+    st.subheader("📋 Payroll Summary")
     st.dataframe(df)
     
+    # 2. Show the New Charts (Analytics)
     st.divider()
-    st.subheader("Update Salary")
+    st.subheader("📈 Payroll Analytics")
     
+    if not df.empty:
+        col_chart1, col_chart2 = st.columns(2)
+        
+        with col_chart1:
+            st.write("**Total Pay (RM)**")
+            # Create a simple chart for Money
+            st.bar_chart(df.set_index("Name")['Pay (RM)'], color="#2ecc71") # Green
+            
+        with col_chart2:
+            st.write("**Hours Worked (Normal vs OT)**")
+            # Create a stacked chart for Hours
+            st.bar_chart(df.set_index("Name")[['Norm Hrs', 'OT Hrs']], color=["#3498db", "#e74c3c"]) # Blue & Red
+    else:
+        st.info("No data available for charts yet.")
+    
+    st.divider()
+    
+    # 3. Adjustment Section
+    st.subheader("Update Salary")
     c1, c2, c3 = st.columns(3)
     with c1:
         if summary:
@@ -287,7 +279,6 @@ def admin_dashboard():
         else:
             target = None
     with c2:
-        # --- CURRENCY LABEL CHANGE HERE ---
         nr = st.number_input("New Rate (RM)", value=10.0)
     with c3:
         not_m = st.number_input("New OT Multiplier", value=1.5)
@@ -322,6 +313,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
