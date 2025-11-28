@@ -162,64 +162,96 @@ def register_page():
 
 def user_dashboard():
     add_cheerful_design()
-    uid = st.session_state['logged_in_user']
+    uid = str(st.session_state['logged_in_user']).strip() # Clean the login ID
+    name = st.session_state['user_name']
     
     # 1. GET ALL USERS
     all_users = get_all_users()
     
-    # --- SUPER DEBUG START ---
-    st.warning("🕵️ SUPER DEBUG MODE ACTIVE")
-    st.write(f"I am looking for ID: **'{uid}'**")
+    # 2. FIND USER (ROBUST MATCHING)
+    user_data = None
+    for u in all_users:
+        # Convert sheet value to string and strip spaces
+        sheet_id = str(u['user_id']).strip()
+        # Compare
+        if sheet_id == uid:
+            user_data = u
+            break
     
-    # Print the raw data from Google Sheets
-    if len(all_users) == 0:
-        st.error("❌ The 'Users' sheet is EMPTY! The app sees 0 rows.")
-    else:
-        st.write("Here is the exact data I see in your Google Sheet:")
-        st.json(all_users) # <--- This shows ALL users. Look for your ID here!
-    # --- SUPER DEBUG END ---
-
-    # 2. FIND THE USER
-    # We force both to strings to ensure '2311' (number) matches '2311' (text)
-    user_data = next((u for u in all_users if str(u['user_id']).strip() == str(uid).strip()), None)
-    
+    # 3. GET RATE
     if user_data:
-        st.success("✅ MATCH FOUND!")
-        # Force rate to be a float
         try:
-            rate = float(user_data.get('rate', 0))
+            # Force conversion to float, handle "RM 10" or "10 "
+            raw_rate = str(user_data.get('rate', 0)).replace('RM', '').replace('$', '').strip()
+            rate = float(raw_rate)
             ot_mult = float(user_data.get('ot_multiplier', 1.5))
-            st.info(f"💰 Rate Used: RM {rate}")
         except:
-            st.error("⚠️ Rate found but it is not a number. Retype it in Sheets.")
             rate = 0.0
             ot_mult = 1.5
     else:
-        st.error("❌ NO MATCH. I cannot find your ID in the list above.")
+        # If still not found, default to 0
         rate = 0.0
         ot_mult = 1.5
 
-    # 3. NORMAL DASHBOARD LOGIC
-    st.divider()
+    # --- DASHBOARD UI ---
+    st.title(f"🌞 Hi, {name}!")
     
-    # Calculate Pay
+    # Debug info (Optional - remove later)
+    if rate == 0:
+        st.error(f"⚠️ Rate is 0! I matched ID '{uid}' but check the 'rate' column in Sheets.")
+    else:
+        st.success(f"✅ Active Rate: RM {rate}/hr")
+    
+    col1, col2 = st.columns(2)
+    today = datetime.now().strftime("%Y-%m-%d")
+    now_time = datetime.now().strftime("%H:%M:%S")
+
+    with col1:
+        if st.button("🚀 PUNCH IN"):
+            logs = get_attendance_logs()
+            active = any(str(l['user_id']).strip() == uid and l['date'] == today and l['out_time'] == "" for l in logs)
+            if active:
+                st.warning("Already working!")
+            else:
+                log_punch_in(uid, today, now_time)
+                st.success("Clocked In!")
+
+    with col2:
+        if st.button("🎉 PUNCH OUT"):
+            logs = get_attendance_logs()
+            # Robust match for logs too
+            entry = next((l for l in logs if str(l['user_id']).strip() == uid and l['date'] == today and l['out_time'] == ""), None)
+            
+            if entry:
+                fmt = "%H:%M:%S"
+                t_in = datetime.strptime(entry['in_time'], fmt)
+                t_out = datetime.strptime(now_time, fmt)
+                total = (t_out - t_in).total_seconds() / 3600
+                
+                norm = 8.0 if total > 8 else total
+                ot = total - 8.0 if total > 8 else 0.0
+                
+                log_punch_out(uid, today, now_time, round(norm, 2), round(ot, 2))
+                st.balloons()
+                st.success("Clocked Out!")
+            else:
+                st.warning("Not clocked in.")
+
+    st.divider()
+    st.subheader("Your History")
     logs = get_attendance_logs()
-    # Filter logs for this user
-    my_logs = [l for l in logs if str(l['user_id']).strip() == str(uid).strip()]
+    # Robust filter for history
+    my_logs = [l for l in logs if str(l['user_id']).strip() == uid]
     
     if my_logs:
         df = pd.DataFrame(my_logs)
-        # Convert columns to numbers safely
         df['hours_worked'] = pd.to_numeric(df['hours_worked'], errors='coerce').fillna(0)
         df['overtime_hours'] = pd.to_numeric(df['overtime_hours'], errors='coerce').fillna(0)
         
-        # MATH
         df['Pay'] = (df['hours_worked'] * rate) + (df['overtime_hours'] * rate * ot_mult)
         
-        st.dataframe(df[['date', 'hours_worked', 'overtime_hours', 'Pay']])
+        st.dataframe(df[['date', 'in_time', 'out_time', 'hours_worked', 'overtime_hours', 'Pay']])
         st.metric("Total Earned", f"RM {df['Pay'].sum():,.2f}") 
-    else:
-        st.info("No attendance records found.")
 
     if st.button("Logout"):
         st.session_state.clear()
@@ -318,6 +350,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
