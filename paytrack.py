@@ -164,99 +164,67 @@ def user_dashboard():
     add_cheerful_design()
     uid = st.session_state['logged_in_user']
     
-    # Fetch Data
+    # 1. GET ALL USERS
     all_users = get_all_users()
     
-    # --- X-RAY DIAGNOSTICS: FIND THE USER ---
-    st.write(f"🔍 Searching for user ID: **{uid}**...")
+    # --- SUPER DEBUG START ---
+    st.warning("🕵️ SUPER DEBUG MODE ACTIVE")
+    st.write(f"I am looking for ID: **'{uid}'**")
     
-    # 1. Print ALL headers found in Google Sheets
-    if len(all_users) > 0:
-        found_headers = list(all_users[0].keys())
-        st.write("📋 **Headers found in Google Sheet:**", found_headers)
-        
-        # Check if 'rate' exists exactly
-        if 'rate' not in found_headers:
-            st.error("❌ CRITICAL ERROR: The app cannot find a column named 'rate'. Did you name it 'Rate' (Capital R) or 'rate ' (with a space)?")
+    # Print the raw data from Google Sheets
+    if len(all_users) == 0:
+        st.error("❌ The 'Users' sheet is EMPTY! The app sees 0 rows.")
     else:
-        st.error("❌ Google Sheet appears empty!")
+        st.write("Here is the exact data I see in your Google Sheet:")
+        st.json(all_users) # <--- This shows ALL users. Look for your ID here!
+    # --- SUPER DEBUG END ---
 
-    # 2. Find the specific user
-    user_data = next((u for u in all_users if str(u['user_id']) == uid), None)
+    # 2. FIND THE USER
+    # We force both to strings to ensure '2311' (number) matches '2311' (text)
+    user_data = next((u for u in all_users if str(u['user_id']).strip() == str(uid).strip()), None)
     
     if user_data:
-        st.success(f"✅ Found user data: {user_data}")
-        # Try to extract rate
-        raw_rate = user_data.get('rate', 'MISSING')
-        st.info(f"💰 Raw Rate value in Sheet: {raw_rate}")
-        
+        st.success("✅ MATCH FOUND!")
+        # Force rate to be a float
         try:
-            rate = float(raw_rate)
+            rate = float(user_data.get('rate', 0))
             ot_mult = float(user_data.get('ot_multiplier', 1.5))
+            st.info(f"💰 Rate Used: RM {rate}")
         except:
+            st.error("⚠️ Rate found but it is not a number. Retype it in Sheets.")
             rate = 0.0
             ot_mult = 1.5
-            st.warning("⚠️ Could not convert rate to number. Check if it has text like 'RM' in it.")
     else:
-        st.error("❌ User not found in database rows.")
+        st.error("❌ NO MATCH. I cannot find your ID in the list above.")
         rate = 0.0
         ot_mult = 1.5
-        
-    # ---------------------------------------------
-    
-    st.title(f"🌞 Hi, {st.session_state.get('user_name', 'User')}!")
-    
-    col1, col2 = st.columns(2)
-    today = datetime.now().strftime("%Y-%m-%d")
-    now_time = datetime.now().strftime("%H:%M:%S")
 
-    with col1:
-        if st.button("🚀 PUNCH IN"):
-            logs = get_attendance_logs()
-            active = any(str(l['user_id']) == str(uid) and l['date'] == today and l['out_time'] == "" for l in logs)
-            if active:
-                st.warning("Already working!")
-            else:
-                log_punch_in(uid, today, now_time)
-                st.success("Clocked In!")
-
-    with col2:
-        if st.button("🎉 PUNCH OUT"):
-            logs = get_attendance_logs()
-            entry = next((l for l in logs if str(l['user_id']) == str(uid) and l['date'] == today and l['out_time'] == ""), None)
-            
-            if entry:
-                fmt = "%H:%M:%S"
-                t_in = datetime.strptime(entry['in_time'], fmt)
-                t_out = datetime.strptime(now_time, fmt)
-                total = (t_out - t_in).total_seconds() / 3600
-                
-                norm = 8.0 if total > 8 else total
-                ot = total - 8.0 if total > 8 else 0.0
-                
-                log_punch_out(uid, today, now_time, round(norm, 2), round(ot, 2))
-                st.balloons()
-                st.success("Clocked Out!")
-            else:
-                st.warning("Not clocked in.")
-
+    # 3. NORMAL DASHBOARD LOGIC
     st.divider()
-    st.subheader("Your History")
+    
+    # Calculate Pay
     logs = get_attendance_logs()
-    my_logs = [l for l in logs if str(l['user_id']) == str(uid)]
+    # Filter logs for this user
+    my_logs = [l for l in logs if str(l['user_id']).strip() == str(uid).strip()]
     
     if my_logs:
         df = pd.DataFrame(my_logs)
+        # Convert columns to numbers safely
         df['hours_worked'] = pd.to_numeric(df['hours_worked'], errors='coerce').fillna(0)
         df['overtime_hours'] = pd.to_numeric(df['overtime_hours'], errors='coerce').fillna(0)
+        
+        # MATH
         df['Pay'] = (df['hours_worked'] * rate) + (df['overtime_hours'] * rate * ot_mult)
         
-        st.dataframe(df[['date', 'in_time', 'out_time', 'hours_worked', 'overtime_hours', 'Pay']])
+        st.dataframe(df[['date', 'hours_worked', 'overtime_hours', 'Pay']])
         st.metric("Total Earned", f"RM {df['Pay'].sum():,.2f}") 
+    else:
+        st.info("No attendance records found.")
 
     if st.button("Logout"):
         st.session_state.clear()
         st.rerun()
+        
 def admin_dashboard():
     add_cheerful_design()
     st.title("Admin Panel")
@@ -350,6 +318,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
