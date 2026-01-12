@@ -196,7 +196,6 @@ def admin_dashboard():
                     if new_uid in users:
                         st.error("User ID already exists!")
                     else:
-                        # Schema: [user_id, name, age, email, password, role, rate, ot_multiplier]
                         new_user_data = [new_uid, new_name, 0, "N/A", new_pass, new_role, new_rate, new_ot]
                         add_new_user(new_user_data)
                         st.success(f"✅ User {new_name} created successfully!")
@@ -235,64 +234,65 @@ def admin_dashboard():
                         st.success(f"Updated {current_data['name']}'s salary details!")
                         time.sleep(1)
                         st.rerun()
-                    else:
-                        st.error("User not found in database.")
 
-    # --- C. GENERATE DUMMY USER (Fixed Schema) ---
+    # --- C. GENERATE DUMMY USER ---
     with st.expander("🪄 Generate Dummy User (Report Mode)", expanded=False):
-        st.write("Clicking this will create a fake user with history to make your sheet look busy.")
-        
         if st.button("Create 'Siti Worker' (RM 200 Total)"):
             sheet = get_db_connection()
-            
-            # 1. Users Tab: [user_id, name, age, email, password, role, rate, ot_multiplier]
             ws_users = sheet.worksheet("Users")
             ws_users.append_row(["SITI_01", "Siti Worker", 24, "siti@email.com", "123", "user", 25.0, 1.5])
             
-            # 2. Attendance Tab: [log_id, user_id, date, in_time, out_time, hours_worked, overtime_hours]
             ws_att = sheet.worksheet("Attendance")
             date_now = datetime.now().strftime("%Y-%m-%d")
             log_id = int(time.time())
             ws_att.append_row([log_id, "SITI_01", date_now, "09:00:00", "17:00:00", 8.0, 0.0])
             
-            # 3. Payroll Tab: [date, user_id, total_hours, total_pay]
             ws_pay = sheet.worksheet("Payroll")
             ws_pay.append_row([date_now, "SITI_01", 8.0, 200.0])
             
-            st.success("✅ Created User 'Siti Worker' with RM 200 salary history!")
+            st.success("✅ Created User 'Siti Worker'!")
             time.sleep(2)
             st.rerun()
 
     st.divider()
 
-    # --- D. PAYROLL DATA (SAFE CALCULATION FIXED) ---
+    # --- D. PAYROLL OVERVIEW (WITH CHARTS) ---
     st.subheader("📊 Payroll Overview")
     payroll_data = get_payroll_logs()
     
     if payroll_data:
         df = pd.DataFrame(payroll_data)
         
-        # --- FIX: SAFE CALCULATION ---
-        # This converts the column to numbers. Any bad text becomes NaN, then 0.
+        # 1. Clean Data (Safe Calculation)
         df['safe_pay'] = pd.to_numeric(df['total_pay'].astype(str).str.replace('RM','').str.strip(), errors='coerce').fillna(0)
         
+        # 2. Key Metrics
         total_payout = df['safe_pay'].sum()
-        
         c1, c2 = st.columns(2)
         c1.metric("Total Payout Pending", f"RM {total_payout:.2f}")
         c2.metric("Total Shifts Completed", len(df))
         
-        # Show the original table (without the safe_pay helper column)
-        st.dataframe(df.drop(columns=['safe_pay']))
+        # 3. CHARTS & DATA TABS
+        tab1, tab2 = st.tabs(["📈 Salary Statistics", "📜 Raw Data"])
         
-        csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Download CSV", csv, "payroll_data.csv", "text/csv")
+        with tab1:
+            st.markdown("##### Total Salary by Employee")
+            # Group by User ID and sum the 'safe_pay'
+            chart_data = df.groupby("user_id")["safe_pay"].sum()
+            st.bar_chart(chart_data)
+            
+        with tab2:
+            st.dataframe(df.drop(columns=['safe_pay']))
+            csv = df.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Download CSV", csv, "payroll_data.csv", "text/csv")
+
     else:
         st.info("No payroll records found yet.")
 
     if st.button("Logout"):
         st.session_state.clear()
         st.rerun()
+        
 def user_dashboard():
     add_dashboard_design()
     uid = str(st.session_state['user_id']).strip()
@@ -393,6 +393,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
