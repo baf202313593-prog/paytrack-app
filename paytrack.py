@@ -5,9 +5,10 @@ import time
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-# --- 1. CONNECTION ---
+# --- 1. CONNECTION & SETUP ---
 def get_db_connection():
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+    # Ensure you have your secrets.toml set up correctly!
     creds_dict = dict(st.secrets["gcp_service_account"])
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     client = gspread.authorize(creds)
@@ -15,22 +16,23 @@ def get_db_connection():
     return sheet
 
 # --- 2. HELPER FUNCTIONS ---
-def get_all_users():
+
+def get_all_users_list():
+    """Raw list from Google Sheets"""
     sheet = get_db_connection()
     worksheet = sheet.worksheet("Users")
     return worksheet.get_all_records()
+
+def fetch_users_dict():
+    """Converts list to dictionary for easy Login lookup: {'user_id': {data}}"""
+    records = get_all_users_list()
+    # Convert list of dicts to dict of dicts keyed by user_id (as string)
+    return {str(r['user_id']).strip(): r for r in records}
 
 def add_new_user(user_data):
     sheet = get_db_connection()
     worksheet = sheet.worksheet("Users")
     worksheet.append_row(user_data)
-
-def update_user_rate(user_id, new_rate, new_ot):
-    sheet = get_db_connection()
-    worksheet = sheet.worksheet("Users")
-    cell = worksheet.find(user_id)
-    worksheet.update_cell(cell.row, 7, new_rate)
-    worksheet.update_cell(cell.row, 8, new_ot)
 
 def get_attendance_logs():
     sheet = get_db_connection()
@@ -39,7 +41,6 @@ def get_attendance_logs():
 
 def get_payroll_logs():
     sheet = get_db_connection()
-    # Ensure you created this tab!
     try:
         worksheet = sheet.worksheet("Payroll")
         return worksheet.get_all_records()
@@ -50,30 +51,36 @@ def log_punch_in(user_id, date, time_in):
     sheet = get_db_connection()
     worksheet = sheet.worksheet("Attendance")
     log_id = int(time.time())
-    # We log 0 for hours initially
-    worksheet.append_row([log_id, user_id, date, time_in, "", 0.0, 0.0])
+    # Structure: [ID, UserID, Date, InTime, OutTime, Hours, LogID]
+    # Note: Adjust columns based on your actual sheet headers
+    worksheet.append_row([log_id, user_id, date, time_in, "", 0.0])
 
 def log_punch_out(user_id, date, time_out):
     sheet = get_db_connection()
     worksheet = sheet.worksheet("Attendance")
     data = worksheet.get_all_records()
-    row_index = -1
+    
+    # Find the row index (gspread is 1-based, plus header)
+    row_to_update = -1
+    
+    # Iterate to find the open session
     for i, row in enumerate(data):
-        # Find the open session
         if str(row['user_id']).strip() == str(user_id).strip() and row['date'] == date and row['out_time'] == "":
-            row_index = i + 2 
+            row_to_update = i + 2 # +2 accounts for 0-index list and 1-row header
+            previous_in_time = row['in_time']
             break
             
-    if row_index != -1:
-        # Calculate session duration only (No money yet!)
+    if row_to_update != -1:
+        # Calculate Duration
         fmt = "%H:%M:%S"
-        t_in = datetime.strptime(data[row_index-2]['in_time'], fmt) # -2 because index vs row mismatch
+        t_in = datetime.strptime(previous_in_time, fmt)
         t_out = datetime.strptime(time_out, fmt)
         duration = (t_out - t_in).total_seconds() / 3600
         
-        # Update Out Time and Duration
-        worksheet.update_cell(row_index, 5, time_out)
-        worksheet.update_cell(row_index, 6, round(duration, 2))
+        # Update Google Sheet
+        # Column 5 is Out Time, Column 6 is Hours Worked (Adjust if your columns differ)
+        worksheet.update_cell(row_to_update, 5, time_out)
+        worksheet.update_cell(row_to_update, 6, round(duration, 2))
         return True
     return False
 
@@ -103,100 +110,143 @@ def log_end_shift(user_id, date, rate, ot_mult):
     sheet = get_db_connection()
     try:
         worksheet = sheet.worksheet("Payroll")
-        # Check if already submitted today to prevent duplicates
+        # Check for duplicates
         existing = worksheet.get_all_records()
         if any(str(r['user_id']).strip() == str(user_id).strip() and r['date'] == date for r in existing):
             return "ERROR_DUP"
             
+        # Headers: [Date, UserID, TotalHours, OTHours, TotalPay]
         worksheet.append_row([date, user_id, round(total_hours, 2), round(ot, 2), round(final_pay, 2)])
         return "SUCCESS"
     except:
         return "ERROR_TAB"
 
-# --- 3. UI FUNCTIONS ---
+# --- 3. UI STYLING ---
 
-def add_login_page_design():
+def add_login_design():
     st.markdown("""
     <style>
     .stApp { background: linear-gradient(to bottom, #e3f2fd, #ffffff); }
-    .block-container { padding-top: 3rem; }
-    .stTextInput>div>div>input { background-color: #FFFFFF; border: 1px solid #d1d5db; border-radius: 8px; padding: 12px 15px; }
-    section[data-testid="stSidebar"] { display: none !important; }
-    .stButton>button { width: 100%; border-radius: 8px; height: 45px; font-weight: 600; }
+    .stTextInput>div>div>input { border-radius: 8px; padding: 10px; }
+    .stButton>button { width: 100%; border-radius: 8px; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-def add_cheerful_design():
+def add_dashboard_design():
     st.markdown("""
     <style>
     .stApp { background: linear-gradient(to bottom right, #FFEFBA, #FFFFFF); }
-    .stButton>button { background-color: #FF9966; color: white; border-radius: 20px; border: none; font-weight: bold; transition: 0.3s; }
-    .stButton>button:hover { background-color: #FF5E62; transform: scale(1.05); color: white; }
-    section[data-testid="stSidebar"] { background-color: #FFF5E1; }
+    .stButton>button { border-radius: 20px; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 4. PAGE LOGIC ---
+# --- 4. PAGE FUNCTIONS ---
 
 def login_page():
-    st.markdown("<h1 style='text-align: center; color: #4CAF50;'>PayTrack Login</h1>", unsafe_allow_html=True)
+    add_login_design()
+    st.markdown("<h1 style='text-align: center; color: #333;'>🔐 PayTrack Login</h1>", unsafe_allow_html=True)
     st.write("---")
     
-    # Simple Login Form (No Tabs)
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.info("👋 Welcome back! Please log in to continue.")
-        uid = st.text_input("User ID (e.g., 2311)")
+        st.info("👋 Welcome! Please log in.")
+        uid = st.text_input("User ID")
         password = st.text_input("Password", type="password")
         
         if st.button("Log In", use_container_width=True):
-            users = fetch_users()
-            # Check if user exists and password matches
+            users = fetch_users_dict()
+            
             if uid in users and str(users[uid]['password']) == str(password):
+                # SUCCESS
                 st.session_state['logged_in'] = True
                 st.session_state['user_id'] = uid
+                st.session_state['user_name'] = users[uid]['name']
                 st.session_state['role'] = users[uid]['role']
-                st.session_state['rate'] = float(users[uid].get('rate', 0))
-                st.success(f"Welcome, {users[uid]['name']}!")
+                st.success("Login Successful!")
+                time.sleep(0.5)
                 st.rerun()
             else:
                 st.error("Invalid User ID or Password")
 
-def register_page():
-    add_login_page_design()
-    col_left, col_center, col_right = st.columns([1, 2, 1])
-    with col_center:
-        st.header("📝 Join the Team!")
-        with st.form("reg"):
-            name = st.text_input("Name")
-            age = st.number_input("Age", min_value=18)
-            email = st.text_input("Email")
-            uid = st.text_input("Create ID")
-            pas = st.text_input("Password", type='password')
-            resume = st.file_uploader("Resume")
-            if st.form_submit_button("Create Account"):
-                add_new_user([uid, name, age, email, pas, 'user', 10.0, 1.5, "Uploaded" if resume else "None"])
-                st.success("Registered! Go to Login.")
-        if st.button("Back to Login"):
-            st.session_state['auth_mode'] = 'login'
-            st.rerun()
+def admin_dashboard():
+    add_dashboard_design()
+    st.title("Admin Dashboard 🛠️")
+    st.write(f"Logged in as: **{st.session_state['user_name']}**")
+    
+    # --- A. REGISTER NEW USER ---
+    with st.expander("➕ Register New Employee", expanded=False):
+        st.markdown("### Create New Account")
+        with st.form("admin_register_form"):
+            new_name = st.text_input("Full Name")
+            new_uid = st.text_input("User ID (Unique)")
+            new_pass = st.text_input("Password", type="password")
+            new_role = st.selectbox("Role", ["user", "admin"]) # matching sheet roles
+            new_rate = st.number_input("Hourly Rate (RM)", value=10.0)
+            
+            submit_reg = st.form_submit_button("Create Account")
+            
+            if submit_reg:
+                if new_uid and new_pass and new_name:
+                    users = fetch_users_dict()
+                    if new_uid in users:
+                        st.error("User ID already exists!")
+                    else:
+                        # Add to Google Sheets
+                        # Order: [user_id, name, age, email, password, role, rate, ot_mult, resume]
+                        # We use placeholders for unused fields (Age, Email, Resume) to keep sheet structure
+                        new_user_data = [new_uid, new_name, 0, "N/A", new_pass, new_role, new_rate, 1.5, "None"]
+                        add_new_user(new_user_data)
+                        st.success(f"✅ User {new_name} created successfully!")
+                        time.sleep(1)
+                        st.rerun()
+                else:
+                    st.warning("Please fill in all fields.")
+
+    st.divider()
+
+    # --- B. PAYROLL DATA ---
+    st.subheader("📊 Payroll Overview")
+    payroll_data = get_payroll_logs()
+    
+    if payroll_data:
+        df = pd.DataFrame(payroll_data)
+        
+        # Calculate totals
+        # Convert currency strings to floats if necessary
+        total_payout = sum(float(str(x).replace('RM','').strip()) for x in df['total_pay'])
+        
+        c1, c2 = st.columns(2)
+        c1.metric("Total Payout Pending", f"RM {total_payout:.2f}")
+        c2.metric("Total Shifts Completed", len(df))
+        
+        st.dataframe(df)
+        
+        # Download CSV
+        csv = df.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Download CSV", csv, "payroll_data.csv", "text/csv")
+    else:
+        st.info("No payroll records found yet.")
+
+    if st.button("Logout"):
+        st.session_state.clear()
+        st.rerun()
 
 def user_dashboard():
-    add_cheerful_design()
-    uid = str(st.session_state['logged_in_user']).strip()
+    add_dashboard_design()
+    uid = str(st.session_state['user_id']).strip()
     name = st.session_state['user_name']
     
-    # Get Rate
-    all_users = get_all_users()
-    user_data = next((u for u in all_users if str(u['user_id']).strip() == uid), None)
+    # Refresh user data to get latest rate
+    users = fetch_users_dict()
+    my_data = users.get(uid, {})
     try:
-        raw_rate = str(user_data.get('rate', 0)).replace('RM', '').strip()
-        rate = float(raw_rate)
-        ot_mult = float(user_data.get('ot_multiplier', 1.5))
-    except: rate, ot_mult = 0.0, 1.5
+        rate = float(my_data.get('rate', 0))
+        ot_mult = float(my_data.get('ot_multiplier', 1.5))
+    except:
+        rate, ot_mult = 0.0, 1.5
 
     st.title(f"🌞 Hi, {name}!")
-    st.info(f"Rate: RM {rate}/hr | OT: {ot_mult}x")
+    st.info(f"Rate: RM {rate}/hr | OT Multiplier: {ot_mult}x")
     
     today = datetime.now().strftime("%Y-%m-%d")
     now_time = datetime.now().strftime("%H:%M:%S")
@@ -204,11 +254,10 @@ def user_dashboard():
     # --- PUNCH CONTROLS ---
     col1, col2, col3 = st.columns(3)
 
-    # 1. PUNCH IN (Start or Resume)
+    # 1. PUNCH IN
     with col1:
         if st.button("🚀 PUNCH IN"):
             logs = get_attendance_logs()
-            # Check if currently inside a session (Open out_time)
             active = any(str(l['user_id']).strip() == uid and l['date'] == today and l['out_time'] == "" for l in logs)
             if active:
                 st.warning("You are already clocked in!")
@@ -218,12 +267,11 @@ def user_dashboard():
                 time.sleep(1)
                 st.rerun()
 
-    # 2. PUNCH OUT (Break/Pause)
+    # 2. PUNCH OUT
     with col2:
-        if st.button("⏸️ PUNCH OUT (BREAK)"):
+        if st.button("⏸️ PUNCH OUT"):
             logs = get_attendance_logs()
-            # Find open session
-            active_session = next((l for l in logs if str(l['user_id']).strip() == uid and l['date'] == today and l['out_time'] == ""), None)
+            active_session = any(str(l['user_id']).strip() == uid and l['date'] == today and l['out_time'] == "" for l in logs)
             if active_session:
                 log_punch_out(uid, today, now_time)
                 st.success("Paused! Go take a break.")
@@ -232,9 +280,8 @@ def user_dashboard():
             else:
                 st.warning("You are not clocked in.")
 
-    # 3. END SHIFT (Finalize Day)
+    # 3. END SHIFT
     with col3:
-        # Use a distinct color for End Shift
         if st.button("🏁 END SHIFT"):
             result = log_end_shift(uid, today, rate, ot_mult)
             if result == "SUCCESS":
@@ -252,125 +299,35 @@ def user_dashboard():
     st.divider()
     
     # --- SHOW HISTORY ---
-    # We now show the FINALIZED Payroll data, not raw logs
-    st.subheader("💰 Completed Shifts (Payroll)")
+    st.subheader("💰 My Completed Shifts")
     pay_logs = get_payroll_logs()
     my_pay = [p for p in pay_logs if str(p['user_id']).strip() == uid]
     
     if my_pay:
         df = pd.DataFrame(my_pay)
         st.dataframe(df)
-        # Calculate Total sum safely
-        total_earned = sum(float(str(x).replace('RM','').strip()) for x in df['daily_pay'] if x != "")
+        total_earned = sum(float(str(x).replace('RM','').strip()) for x in df['total_pay'])
         st.metric("Total Earnings", f"RM {total_earned:,.2f}")
     else:
-        st.info("No completed shifts yet. Work today and press 'End Shift'!")
+        st.info("No completed shifts yet.")
         
-    # Show Raw Logs for Today (Optional, so they can see their sessions)
-    with st.expander("View Today's Raw Sessions"):
-        logs = get_attendance_logs()
-        today_logs = [l for l in logs if str(l['user_id']).strip() == uid and l['date'] == today]
-        if today_logs:
-            st.dataframe(pd.DataFrame(today_logs))
-
     if st.button("Logout"):
         st.session_state.clear()
         st.rerun()
 
-def admin_dashboard():
-    st.title("Admin Dashboard 🛠️")
-    st.write(f"Welcome, Admin **{st.session_state['user_id']}**")
-    
-    # --- NEW: REGISTER USER SECTION ---
-    with st.expander("➕ Register New Employee", expanded=False):
-        st.markdown("### Create New Account")
-        with st.form("admin_register_form"):
-            new_name = st.text_input("Full Name")
-            new_uid = st.text_input("User ID (Unique)")
-            new_pass = st.text_input("Password", type="password")
-            new_role = st.selectbox("Role", ["Worker", "Admin"])
-            new_rate = st.number_input("Hourly Rate (RM)", value=10.0)
-            
-            submit_reg = st.form_submit_button("Create Account")
-            
-            if submit_reg:
-                if new_uid and new_pass and new_name:
-                    users = fetch_users()
-                    if new_uid in users:
-                        st.error("User ID already exists!")
-                    else:
-                        # Add to Google Sheets
-                        new_user_data = [new_uid, new_name, new_pass, new_role, new_rate]
-                        sheet_users.append_row(new_user_data)
-                        st.success(f"✅ User {new_name} ({new_uid}) created successfully!")
-                        st.cache_data.clear() # Refresh data
-                else:
-                    st.warning("Please fill in all fields.")
-
-    st.write("---")
-
-    # --- EXISTING: ANALYTICS & DATA ---
-    st.subheader("📊 Payroll Overview")
-    
-    # Load Data
-    df_logs = fetch_attendance()
-    
-    if not df_logs.empty:
-        # Calculate totals
-        total_payout = df_logs['Total Pay (RM)'].sum()
-        total_hours = df_logs['Hours Worked'].sum()
-        
-        # Metrics
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Total Payout", f"RM {total_payout:.2f}")
-        c2.metric("Total Hours", f"{total_hours:.1f} hrs")
-        c3.metric("Total Logs", len(df_logs))
-        
-        # Charts
-        tab1, tab2 = st.tabs(["💰 Salary by User", "📜 Raw Logs"])
-        
-        with tab1:
-            st.bar_chart(df_logs.groupby("User ID")["Total Pay (RM)"].sum())
-            
-        with tab2:
-            st.dataframe(df_logs)
-            
-            # Export Button
-            csv = df_logs.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                "📥 Download CSV",
-                csv,
-                "payroll_data.csv",
-                "text/csv"
-            )
-    else:
-        st.info("No attendance records found yet.")
-
-    if st.button("Logout"):
-        st.session_state['logged_in'] = False
-        st.rerun()
+# --- 5. MAIN APP ---
 
 def main():
-    if 'logged_in_user' not in st.session_state: st.session_state['logged_in_user'] = None
-    if 'auth_mode' not in st.session_state: st.session_state['auth_mode'] = 'login'
+    if 'logged_in' not in st.session_state:
+        st.session_state['logged_in'] = False
 
-    if st.session_state['logged_in_user']:
-        if st.session_state['role'] == 'admin': admin_dashboard()
-        else: user_dashboard()
+    if st.session_state['logged_in']:
+        if st.session_state['role'] == 'admin':
+            admin_dashboard()
+        else:
+            user_dashboard()
     else:
-        if st.session_state['auth_mode'] == 'login': login_page()
-        else: register_page()
+        login_page()
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
