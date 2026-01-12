@@ -270,6 +270,52 @@ def admin_dashboard():
     else:
         st.info("No payroll records found yet.")
 
+    # --- D. GENERATE FULL DUMMY USER (FOR REPORT) ---
+    with st.expander("🪄 Generate Dummy User (Report Mode)", expanded=False):
+        st.write("Clicking this will create a fake user with history to make your sheet look busy.")
+        
+        if st.button("Create 'Siti Worker' (RM 200 Total)"):
+            sheet = get_db_connection()
+            
+            # 1. CREATE USER (Siti)
+            # Schema: [user_id, name, age, email, password, role, rate, ot_multiplier]
+            ws_users = sheet.worksheet("Users")
+            # We use RM 25/hr so 8 hours = RM 200
+            ws_users.append_row(["SITI_01", "Siti Worker", 24, "siti@email.com", "123", "user", 25.0, 1.5])
+            
+            # 2. CREATE HISTORY (Attendance & Payroll)
+            # We will create 1 day of work (8 hours) to hit exactly RM 200
+            ws_att = sheet.worksheet("Attendance")
+            ws_pay = sheet.worksheet("Payroll")
+            
+            # Date: Today
+            date_now = datetime.now().strftime("%Y-%m-%d")
+            
+            # --- Day 1: Full 8 Hours (RM 200) ---
+            # Attendance: [log_id, user_id, date, in_time, out_time, hours_worked, overtime_hours]
+            log_id = int(time.time())
+            ws_att.append_row([
+                log_id, 
+                "SITI_01", 
+                date_now, 
+                "09:00:00", 
+                "17:00:00", 
+                8.0, 
+                0.0 
+            ])
+            
+            # Payroll: [date, user_id, total_hours, total_pay]
+            ws_pay.append_row([
+                date_now, 
+                "SITI_01", 
+                8.0, 
+                200.0  # (8 hours * RM 25)
+            ])
+            
+            st.success("✅ Created User 'Siti Worker' with RM 200 salary history!")
+            time.sleep(2)
+            st.rerun()
+
     if st.button("Logout"):
         st.session_state.clear()
         st.rerun()
@@ -373,4 +419,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
