@@ -196,6 +196,7 @@ def admin_dashboard():
                     if new_uid in users:
                         st.error("User ID already exists!")
                     else:
+                        # Order: [user_id, name, age, email, password, role, rate, ot_multiplier]
                         new_user_data = [new_uid, new_name, 0, "N/A", new_pass, new_role, new_rate, new_ot]
                         add_new_user(new_user_data)
                         st.success(f"✅ User {new_name} created successfully!")
@@ -235,66 +236,16 @@ def admin_dashboard():
                         time.sleep(1)
                         st.rerun()
 
-    # --- C. GENERATE DUMMY DATA ---
-    with st.expander("🪄 Generate Dummy Data (Report Mode)", expanded=False):
-        st.write("Click to add a user AND generate 7 days of work history.")
-        col1, col2, col3 = st.columns(3)
-        
-        # BUTTON 1: SITI
-        with col1:
-            if st.button("Add 'Siti' (7 Days)"):
-                sheet = get_db_connection()
-                sheet.worksheet("Users").append_row(["SITI_01", "Siti Worker", 24, "siti@email.com", "123", "user", 25.0, 1.5])
-                ws_att = sheet.worksheet("Attendance")
-                ws_pay = sheet.worksheet("Payroll")
-                for i in range(7):
-                    day_str = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
-                    ws_att.append_row([int(time.time()), "SITI_01", day_str, "09:00:00", "17:00:00", 8.0, 0.0])
-                    ws_pay.append_row([day_str, "SITI_01", 8.0, 0.0, 200.0])
-                st.toast("✅ Added Siti!")
-                time.sleep(1)
-                st.rerun()
-
-        # BUTTON 2: ALI
-        with col2:
-            if st.button("Add 'Ali' (7 Days)"):
-                sheet = get_db_connection()
-                sheet.worksheet("Users").append_row(["ALI_MGR", "Ali Manager", 35, "ali@email.com", "123", "user", 50.0, 1.5])
-                ws_att = sheet.worksheet("Attendance")
-                ws_pay = sheet.worksheet("Payroll")
-                for i in range(7):
-                    day_str = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
-                    ws_att.append_row([int(time.time()), "ALI_MGR", day_str, "08:00:00", "18:00:00", 9.0, 1.0])
-                    ws_pay.append_row([day_str, "ALI_MGR", 9.0, 1.0, 475.0])
-                st.toast("✅ Added Ali!")
-                time.sleep(1)
-                st.rerun()
-
-        # BUTTON 3: ABU
-        with col3:
-            if st.button("Add 'Abu' (7 Days)"):
-                sheet = get_db_connection()
-                sheet.worksheet("Users").append_row(["ABU_PT", "Abu PartTime", 19, "abu@email.com", "123", "user", 8.0, 1.5])
-                ws_att = sheet.worksheet("Attendance")
-                ws_pay = sheet.worksheet("Payroll")
-                for i in range(7):
-                    day_str = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
-                    ws_att.append_row([int(time.time()), "ABU_PT", day_str, "12:00:00", "17:00:00", 5.0, 0.0])
-                    ws_pay.append_row([day_str, "ABU_PT", 5.0, 0.0, 40.0])
-                st.toast("✅ Added Abu!")
-                time.sleep(1)
-                st.rerun()
-
     st.divider()
 
-    # --- D. PAYROLL OVERVIEW (WITH NEW TAB) ---
+    # --- C. PAYROLL OVERVIEW (CHARTS & SUMMARY) ---
     st.subheader("📊 Payroll Overview")
     payroll_data = get_payroll_logs()
     
     if payroll_data:
         df = pd.DataFrame(payroll_data)
         
-        # 1. Safe Calculations
+        # 1. Safe Calculations (Prevents crashes if sheet has bad data)
         df['safe_pay'] = pd.to_numeric(df['total_pay'].astype(str).str.replace('RM','').str.strip(), errors='coerce').fillna(0)
         df['safe_hours'] = pd.to_numeric(df['total_hours'].astype(str), errors='coerce').fillna(0)
         
@@ -443,6 +394,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
