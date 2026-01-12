@@ -235,7 +235,7 @@ def admin_dashboard():
                         time.sleep(1)
                         st.rerun()
 
-    # --- C. GENERATE DUMMY DATA (UPDATED) ---
+    # --- C. GENERATE DUMMY DATA (FIXED COLUMN ORDER) ---
     with st.expander("🪄 Generate Dummy Data (Report Mode)", expanded=False):
         st.write("Populate your charts with diverse data for the report.")
         
@@ -249,10 +249,11 @@ def admin_dashboard():
                 
                 # User
                 sheet.worksheet("Users").append_row(["SITI_01", "Siti Worker", 24, "siti@email.com", "123", "user", 25.0, 1.5])
-                # Attendance (8 hours)
+                # Attendance
                 sheet.worksheet("Attendance").append_row([int(time.time()), "SITI_01", date_now, "09:00:00", "17:00:00", 8.0, 0.0])
-                # Payroll (RM 200)
-                sheet.worksheet("Payroll").append_row([date_now, "SITI_01", 8.0, 200.0])
+                
+                # Payroll FIX: [Date, UserID, TotalHours, OTHours, TotalPay]
+                sheet.worksheet("Payroll").append_row([date_now, "SITI_01", 8.0, 0.0, 200.0]) 
                 
                 st.toast("✅ Added Siti!")
                 time.sleep(1)
@@ -264,12 +265,13 @@ def admin_dashboard():
                 sheet = get_db_connection()
                 date_now = datetime.now().strftime("%Y-%m-%d")
                 
-                # User: Rate RM 50 (Manager)
+                # User
                 sheet.worksheet("Users").append_row(["ALI_MGR", "Ali Manager", 35, "ali@email.com", "123", "user", 50.0, 1.5])
-                # Attendance (9 hours = 1 hr OT)
+                # Attendance
                 sheet.worksheet("Attendance").append_row([int(time.time()), "ALI_MGR", date_now, "08:00:00", "18:00:00", 9.0, 1.0])
-                # Payroll: (8 * 50) + (1 * 50 * 1.5) = 400 + 75 = 475
-                sheet.worksheet("Payroll").append_row([date_now, "ALI_MGR", 9.0, 475.0])
+                
+                # Payroll FIX: Included 1.0 for OT Hours
+                sheet.worksheet("Payroll").append_row([date_now, "ALI_MGR", 9.0, 1.0, 475.0])
                 
                 st.toast("✅ Added Ali!")
                 time.sleep(1)
@@ -281,12 +283,13 @@ def admin_dashboard():
                 sheet = get_db_connection()
                 date_now = datetime.now().strftime("%Y-%m-%d")
                 
-                # User: Rate RM 8 (Intern)
+                # User
                 sheet.worksheet("Users").append_row(["ABU_PT", "Abu PartTime", 19, "abu@email.com", "123", "user", 8.0, 1.5])
-                # Attendance (5 hours)
+                # Attendance
                 sheet.worksheet("Attendance").append_row([int(time.time()), "ABU_PT", date_now, "12:00:00", "17:00:00", 5.0, 0.0])
-                # Payroll: 5 * 8 = 40
-                sheet.worksheet("Payroll").append_row([date_now, "ABU_PT", 5.0, 40.0])
+                
+                # Payroll FIX: Included 0.0 for OT Hours
+                sheet.worksheet("Payroll").append_row([date_now, "ABU_PT", 5.0, 0.0, 40.0])
                 
                 st.toast("✅ Added Abu!")
                 time.sleep(1)
@@ -430,6 +433,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
