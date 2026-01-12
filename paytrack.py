@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta  # <--- Add timedelta
 import time
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -235,63 +235,79 @@ def admin_dashboard():
                         time.sleep(1)
                         st.rerun()
 
-    # --- C. GENERATE DUMMY DATA (FIXED COLUMN ORDER) ---
+    # --- C. GENERATE DUMMY DATA (7 DAYS HISTORY) ---
     with st.expander("🪄 Generate Dummy Data (Report Mode)", expanded=False):
-        st.write("Populate your charts with diverse data for the report.")
+        st.write("Click to add a user AND generate 7 days of work history.")
         
         col1, col2, col3 = st.columns(3)
         
         # BUTTON 1: SITI (Medium Pay)
         with col1:
-            if st.button("Add 'Siti' (RM 200)"):
+            if st.button("Add 'Siti' (7 Days)"):
                 sheet = get_db_connection()
-                date_now = datetime.now().strftime("%Y-%m-%d")
-                
-                # User
+                # 1. Add User
                 sheet.worksheet("Users").append_row(["SITI_01", "Siti Worker", 24, "siti@email.com", "123", "user", 25.0, 1.5])
-                # Attendance
-                sheet.worksheet("Attendance").append_row([int(time.time()), "SITI_01", date_now, "09:00:00", "17:00:00", 8.0, 0.0])
                 
-                # Payroll FIX: [Date, UserID, TotalHours, OTHours, TotalPay]
-                sheet.worksheet("Payroll").append_row([date_now, "SITI_01", 8.0, 0.0, 200.0]) 
+                # 2. Loop for Past 7 Days
+                ws_att = sheet.worksheet("Attendance")
+                ws_pay = sheet.worksheet("Payroll")
                 
-                st.toast("✅ Added Siti!")
+                for i in range(7):
+                    # Calculate date: Today minus i days
+                    day_str = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
+                    
+                    # Attendance (8 hours)
+                    ws_att.append_row([int(time.time()), "SITI_01", day_str, "09:00:00", "17:00:00", 8.0, 0.0])
+                    # Payroll (RM 200)
+                    ws_pay.append_row([day_str, "SITI_01", 8.0, 0.0, 200.0])
+                
+                st.toast("✅ Added Siti + 7 Days History!")
                 time.sleep(1)
                 st.rerun()
 
         # BUTTON 2: ALI (High Pay - Manager)
         with col2:
-            if st.button("Add 'Ali' (RM 475)"):
+            if st.button("Add 'Ali' (7 Days)"):
                 sheet = get_db_connection()
-                date_now = datetime.now().strftime("%Y-%m-%d")
                 
                 # User
                 sheet.worksheet("Users").append_row(["ALI_MGR", "Ali Manager", 35, "ali@email.com", "123", "user", 50.0, 1.5])
-                # Attendance
-                sheet.worksheet("Attendance").append_row([int(time.time()), "ALI_MGR", date_now, "08:00:00", "18:00:00", 9.0, 1.0])
                 
-                # Payroll FIX: Included 1.0 for OT Hours
-                sheet.worksheet("Payroll").append_row([date_now, "ALI_MGR", 9.0, 1.0, 475.0])
+                ws_att = sheet.worksheet("Attendance")
+                ws_pay = sheet.worksheet("Payroll")
+
+                for i in range(7):
+                    day_str = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
+                    
+                    # Attendance (9 hours = 1 hr OT)
+                    ws_att.append_row([int(time.time()), "ALI_MGR", day_str, "08:00:00", "18:00:00", 9.0, 1.0])
+                    # Payroll (RM 475)
+                    ws_pay.append_row([day_str, "ALI_MGR", 9.0, 1.0, 475.0])
                 
-                st.toast("✅ Added Ali!")
+                st.toast("✅ Added Ali + 7 Days History!")
                 time.sleep(1)
                 st.rerun()
 
         # BUTTON 3: ABU (Low Pay - Part Time)
         with col3:
-            if st.button("Add 'Abu' (RM 40)"):
+            if st.button("Add 'Abu' (7 Days)"):
                 sheet = get_db_connection()
-                date_now = datetime.now().strftime("%Y-%m-%d")
                 
                 # User
                 sheet.worksheet("Users").append_row(["ABU_PT", "Abu PartTime", 19, "abu@email.com", "123", "user", 8.0, 1.5])
-                # Attendance
-                sheet.worksheet("Attendance").append_row([int(time.time()), "ABU_PT", date_now, "12:00:00", "17:00:00", 5.0, 0.0])
                 
-                # Payroll FIX: Included 0.0 for OT Hours
-                sheet.worksheet("Payroll").append_row([date_now, "ABU_PT", 5.0, 0.0, 40.0])
+                ws_att = sheet.worksheet("Attendance")
+                ws_pay = sheet.worksheet("Payroll")
+
+                for i in range(7):
+                    day_str = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
+                    
+                    # Attendance (5 hours)
+                    ws_att.append_row([int(time.time()), "ABU_PT", day_str, "12:00:00", "17:00:00", 5.0, 0.0])
+                    # Payroll (RM 40)
+                    ws_pay.append_row([day_str, "ABU_PT", 5.0, 0.0, 40.0])
                 
-                st.toast("✅ Added Abu!")
+                st.toast("✅ Added Abu + 7 Days History!")
                 time.sleep(1)
                 st.rerun()
 
@@ -309,7 +325,7 @@ def admin_dashboard():
         
         total_payout = df['safe_pay'].sum()
         c1, c2 = st.columns(2)
-        c1.metric("Total Payout Pending", f"RM {total_payout:.2f}")
+        c1.metric("Total Payout Pending", f"RM {total_payout:,.2f}")
         c2.metric("Total Shifts Completed", len(df))
         
         # CHARTS
@@ -317,7 +333,7 @@ def admin_dashboard():
         
         with tab1:
             st.markdown("##### Total Salary by Employee")
-            # This bar chart will now look excellent with Siti (200), Ali (475), and Abu (40)
+            # Group by User ID
             chart_data = df.groupby("user_id")["safe_pay"].sum()
             st.bar_chart(chart_data)
             
@@ -433,6 +449,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
