@@ -235,24 +235,62 @@ def admin_dashboard():
                         time.sleep(1)
                         st.rerun()
 
-    # --- C. GENERATE DUMMY USER ---
-    with st.expander("🪄 Generate Dummy User (Report Mode)", expanded=False):
-        if st.button("Create 'Siti Worker' (RM 200 Total)"):
-            sheet = get_db_connection()
-            ws_users = sheet.worksheet("Users")
-            ws_users.append_row(["SITI_01", "Siti Worker", 24, "siti@email.com", "123", "user", 25.0, 1.5])
-            
-            ws_att = sheet.worksheet("Attendance")
-            date_now = datetime.now().strftime("%Y-%m-%d")
-            log_id = int(time.time())
-            ws_att.append_row([log_id, "SITI_01", date_now, "09:00:00", "17:00:00", 8.0, 0.0])
-            
-            ws_pay = sheet.worksheet("Payroll")
-            ws_pay.append_row([date_now, "SITI_01", 8.0, 200.0])
-            
-            st.success("✅ Created User 'Siti Worker'!")
-            time.sleep(2)
-            st.rerun()
+    # --- C. GENERATE DUMMY DATA (UPDATED) ---
+    with st.expander("🪄 Generate Dummy Data (Report Mode)", expanded=False):
+        st.write("Populate your charts with diverse data for the report.")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        # BUTTON 1: SITI (Medium Pay)
+        with col1:
+            if st.button("Add 'Siti' (RM 200)"):
+                sheet = get_db_connection()
+                date_now = datetime.now().strftime("%Y-%m-%d")
+                
+                # User
+                sheet.worksheet("Users").append_row(["SITI_01", "Siti Worker", 24, "siti@email.com", "123", "user", 25.0, 1.5])
+                # Attendance (8 hours)
+                sheet.worksheet("Attendance").append_row([int(time.time()), "SITI_01", date_now, "09:00:00", "17:00:00", 8.0, 0.0])
+                # Payroll (RM 200)
+                sheet.worksheet("Payroll").append_row([date_now, "SITI_01", 8.0, 200.0])
+                
+                st.toast("✅ Added Siti!")
+                time.sleep(1)
+                st.rerun()
+
+        # BUTTON 2: ALI (High Pay - Manager)
+        with col2:
+            if st.button("Add 'Ali' (RM 475)"):
+                sheet = get_db_connection()
+                date_now = datetime.now().strftime("%Y-%m-%d")
+                
+                # User: Rate RM 50 (Manager)
+                sheet.worksheet("Users").append_row(["ALI_MGR", "Ali Manager", 35, "ali@email.com", "123", "user", 50.0, 1.5])
+                # Attendance (9 hours = 1 hr OT)
+                sheet.worksheet("Attendance").append_row([int(time.time()), "ALI_MGR", date_now, "08:00:00", "18:00:00", 9.0, 1.0])
+                # Payroll: (8 * 50) + (1 * 50 * 1.5) = 400 + 75 = 475
+                sheet.worksheet("Payroll").append_row([date_now, "ALI_MGR", 9.0, 475.0])
+                
+                st.toast("✅ Added Ali!")
+                time.sleep(1)
+                st.rerun()
+
+        # BUTTON 3: ABU (Low Pay - Part Time)
+        with col3:
+            if st.button("Add 'Abu' (RM 40)"):
+                sheet = get_db_connection()
+                date_now = datetime.now().strftime("%Y-%m-%d")
+                
+                # User: Rate RM 8 (Intern)
+                sheet.worksheet("Users").append_row(["ABU_PT", "Abu PartTime", 19, "abu@email.com", "123", "user", 8.0, 1.5])
+                # Attendance (5 hours)
+                sheet.worksheet("Attendance").append_row([int(time.time()), "ABU_PT", date_now, "12:00:00", "17:00:00", 5.0, 0.0])
+                # Payroll: 5 * 8 = 40
+                sheet.worksheet("Payroll").append_row([date_now, "ABU_PT", 5.0, 40.0])
+                
+                st.toast("✅ Added Abu!")
+                time.sleep(1)
+                st.rerun()
 
     st.divider()
 
@@ -263,21 +301,20 @@ def admin_dashboard():
     if payroll_data:
         df = pd.DataFrame(payroll_data)
         
-        # 1. Clean Data (Safe Calculation)
+        # Safe Calculation
         df['safe_pay'] = pd.to_numeric(df['total_pay'].astype(str).str.replace('RM','').str.strip(), errors='coerce').fillna(0)
         
-        # 2. Key Metrics
         total_payout = df['safe_pay'].sum()
         c1, c2 = st.columns(2)
         c1.metric("Total Payout Pending", f"RM {total_payout:.2f}")
         c2.metric("Total Shifts Completed", len(df))
         
-        # 3. CHARTS & DATA TABS
+        # CHARTS
         tab1, tab2 = st.tabs(["📈 Salary Statistics", "📜 Raw Data"])
         
         with tab1:
             st.markdown("##### Total Salary by Employee")
-            # Group by User ID and sum the 'safe_pay'
+            # This bar chart will now look excellent with Siti (200), Ali (475), and Abu (40)
             chart_data = df.groupby("user_id")["safe_pay"].sum()
             st.bar_chart(chart_data)
             
@@ -393,6 +430,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
