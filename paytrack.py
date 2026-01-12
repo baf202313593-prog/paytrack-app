@@ -182,7 +182,6 @@ def admin_dashboard():
             new_pass = st.text_input("Password", type="password")
             new_role = st.selectbox("Role", ["user", "admin"])
             
-            # NOW YOU CAN ADJUST BOTH RATES DURING REGISTER
             c1, c2 = st.columns(2)
             with c1:
                 new_rate = st.number_input("Hourly Rate (RM)", value=10.0, step=0.5)
@@ -197,9 +196,8 @@ def admin_dashboard():
                     if new_uid in users:
                         st.error("User ID already exists!")
                     else:
-                        # Add to Google Sheets
-                        # Order: [user_id, name, age, email, password, role, rate, ot_mult, resume]
-                        new_user_data = [new_uid, new_name, 0, "N/A", new_pass, new_role, new_rate, new_ot, "None"]
+                        # Schema: [user_id, name, age, email, password, role, rate, ot_multiplier]
+                        new_user_data = [new_uid, new_name, 0, "N/A", new_pass, new_role, new_rate, new_ot]
                         add_new_user(new_user_data)
                         st.success(f"✅ User {new_name} created successfully!")
                         time.sleep(1)
@@ -207,15 +205,12 @@ def admin_dashboard():
                 else:
                     st.warning("Please fill in all fields.")
 
-    # --- B. MANAGE EXISTING USERS (NEW FEATURE) ---
+    # --- B. MANAGE EXISTING USERS ---
     with st.expander("✏️ Update Employee Rates", expanded=False):
         st.markdown("### Adjust Salary for Existing Staff")
-        
         users = fetch_users_dict()
-        # Create a list of workers (exclude admins if you want)
         worker_list = [u for u in users.values()]
         
-        # Dropdown to pick a user
         selected_user_id = st.selectbox(
             "Select Employee", 
             options=[u['user_id'] for u in worker_list],
@@ -224,8 +219,6 @@ def admin_dashboard():
         
         if selected_user_id:
             current_data = users[str(selected_user_id)]
-            
-            # Show current stats
             st.info(f"Current Rate: **RM {current_data.get('rate')}** | OT: **{current_data.get('ot_multiplier')}x**")
             
             with st.form("update_rate_form"):
@@ -233,14 +226,10 @@ def admin_dashboard():
                 upd_ot = st.number_input("New OT Multiplier", value=float(current_data.get('ot_multiplier', 1.5)), step=0.1)
                 
                 if st.form_submit_button("Update Rates"):
-                    # Find the row in Google Sheets and update it
                     sheet = get_db_connection()
                     ws = sheet.worksheet("Users")
-                    cell = ws.find(str(selected_user_id)) # Find the row with this ID
-                    
+                    cell = ws.find(str(selected_user_id))
                     if cell:
-                        # Assuming Rate is Col 7 and OT is Col 8 based on previous code
-                        # We use cell.row to get the row number
                         ws.update_cell(cell.row, 7, upd_rate)
                         ws.update_cell(cell.row, 8, upd_ot)
                         st.success(f"Updated {current_data['name']}'s salary details!")
@@ -249,72 +238,57 @@ def admin_dashboard():
                     else:
                         st.error("User not found in database.")
 
-    st.divider()
-
-    # --- C. PAYROLL DATA ---
-    st.subheader("📊 Payroll Overview")
-    payroll_data = get_payroll_logs()
-    
-    if payroll_data:
-        df = pd.DataFrame(payroll_data)
-        total_payout = sum(float(str(x).replace('RM','').strip()) for x in df['total_pay'])
-        
-        c1, c2 = st.columns(2)
-        c1.metric("Total Payout Pending", f"RM {total_payout:.2f}")
-        c2.metric("Total Shifts Completed", len(df))
-        
-        st.dataframe(df)
-        
-        csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Download CSV", csv, "payroll_data.csv", "text/csv")
-    else:
-        st.info("No payroll records found yet.")
-
-    # --- D. GENERATE FULL DUMMY USER (FOR REPORT) ---
+    # --- C. GENERATE DUMMY USER (Fixed Schema) ---
     with st.expander("🪄 Generate Dummy User (Report Mode)", expanded=False):
         st.write("Clicking this will create a fake user with history to make your sheet look busy.")
         
         if st.button("Create 'Siti Worker' (RM 200 Total)"):
             sheet = get_db_connection()
             
-            # 1. CREATE USER (Siti)
-            # Schema: [user_id, name, age, email, password, role, rate, ot_multiplier]
+            # 1. Users Tab: [user_id, name, age, email, password, role, rate, ot_multiplier]
             ws_users = sheet.worksheet("Users")
-            # We use RM 25/hr so 8 hours = RM 200
             ws_users.append_row(["SITI_01", "Siti Worker", 24, "siti@email.com", "123", "user", 25.0, 1.5])
             
-            # 2. CREATE HISTORY (Attendance & Payroll)
-            # We will create 1 day of work (8 hours) to hit exactly RM 200
+            # 2. Attendance Tab: [log_id, user_id, date, in_time, out_time, hours_worked, overtime_hours]
             ws_att = sheet.worksheet("Attendance")
-            ws_pay = sheet.worksheet("Payroll")
-            
-            # Date: Today
             date_now = datetime.now().strftime("%Y-%m-%d")
-            
-            # --- Day 1: Full 8 Hours (RM 200) ---
-            # Attendance: [log_id, user_id, date, in_time, out_time, hours_worked, overtime_hours]
             log_id = int(time.time())
-            ws_att.append_row([
-                log_id, 
-                "SITI_01", 
-                date_now, 
-                "09:00:00", 
-                "17:00:00", 
-                8.0, 
-                0.0 
-            ])
+            ws_att.append_row([log_id, "SITI_01", date_now, "09:00:00", "17:00:00", 8.0, 0.0])
             
-            # Payroll: [date, user_id, total_hours, total_pay]
-            ws_pay.append_row([
-                date_now, 
-                "SITI_01", 
-                8.0, 
-                200.0  # (8 hours * RM 25)
-            ])
+            # 3. Payroll Tab: [date, user_id, total_hours, total_pay]
+            ws_pay = sheet.worksheet("Payroll")
+            ws_pay.append_row([date_now, "SITI_01", 8.0, 200.0])
             
             st.success("✅ Created User 'Siti Worker' with RM 200 salary history!")
             time.sleep(2)
             st.rerun()
+
+    st.divider()
+
+    # --- D. PAYROLL DATA (SAFE CALCULATION FIXED) ---
+    st.subheader("📊 Payroll Overview")
+    payroll_data = get_payroll_logs()
+    
+    if payroll_data:
+        df = pd.DataFrame(payroll_data)
+        
+        # --- FIX: SAFE CALCULATION ---
+        # This converts the column to numbers. Any bad text becomes NaN, then 0.
+        df['safe_pay'] = pd.to_numeric(df['total_pay'].astype(str).str.replace('RM','').str.strip(), errors='coerce').fillna(0)
+        
+        total_payout = df['safe_pay'].sum()
+        
+        c1, c2 = st.columns(2)
+        c1.metric("Total Payout Pending", f"RM {total_payout:.2f}")
+        c2.metric("Total Shifts Completed", len(df))
+        
+        # Show the original table (without the safe_pay helper column)
+        st.dataframe(df.drop(columns=['safe_pay']))
+        
+        csv = df.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Download CSV", csv, "payroll_data.csv", "text/csv")
+    else:
+        st.info("No payroll records found yet.")
 
     if st.button("Logout"):
         st.session_state.clear()
@@ -419,5 +393,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
