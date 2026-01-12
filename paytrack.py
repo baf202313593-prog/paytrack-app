@@ -235,112 +235,106 @@ def admin_dashboard():
                         time.sleep(1)
                         st.rerun()
 
-    # --- C. GENERATE DUMMY DATA (7 DAYS HISTORY) ---
+    # --- C. GENERATE DUMMY DATA ---
     with st.expander("🪄 Generate Dummy Data (Report Mode)", expanded=False):
         st.write("Click to add a user AND generate 7 days of work history.")
-        
         col1, col2, col3 = st.columns(3)
         
-        # BUTTON 1: SITI (Medium Pay)
+        # BUTTON 1: SITI
         with col1:
             if st.button("Add 'Siti' (7 Days)"):
                 sheet = get_db_connection()
-                # 1. Add User
                 sheet.worksheet("Users").append_row(["SITI_01", "Siti Worker", 24, "siti@email.com", "123", "user", 25.0, 1.5])
-                
-                # 2. Loop for Past 7 Days
                 ws_att = sheet.worksheet("Attendance")
                 ws_pay = sheet.worksheet("Payroll")
-                
                 for i in range(7):
-                    # Calculate date: Today minus i days
                     day_str = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
-                    
-                    # Attendance (8 hours)
                     ws_att.append_row([int(time.time()), "SITI_01", day_str, "09:00:00", "17:00:00", 8.0, 0.0])
-                    # Payroll (RM 200)
                     ws_pay.append_row([day_str, "SITI_01", 8.0, 0.0, 200.0])
-                
-                st.toast("✅ Added Siti + 7 Days History!")
+                st.toast("✅ Added Siti!")
                 time.sleep(1)
                 st.rerun()
 
-        # BUTTON 2: ALI (High Pay - Manager)
+        # BUTTON 2: ALI
         with col2:
             if st.button("Add 'Ali' (7 Days)"):
                 sheet = get_db_connection()
-                
-                # User
                 sheet.worksheet("Users").append_row(["ALI_MGR", "Ali Manager", 35, "ali@email.com", "123", "user", 50.0, 1.5])
-                
                 ws_att = sheet.worksheet("Attendance")
                 ws_pay = sheet.worksheet("Payroll")
-
                 for i in range(7):
                     day_str = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
-                    
-                    # Attendance (9 hours = 1 hr OT)
                     ws_att.append_row([int(time.time()), "ALI_MGR", day_str, "08:00:00", "18:00:00", 9.0, 1.0])
-                    # Payroll (RM 475)
                     ws_pay.append_row([day_str, "ALI_MGR", 9.0, 1.0, 475.0])
-                
-                st.toast("✅ Added Ali + 7 Days History!")
+                st.toast("✅ Added Ali!")
                 time.sleep(1)
                 st.rerun()
 
-        # BUTTON 3: ABU (Low Pay - Part Time)
+        # BUTTON 3: ABU
         with col3:
             if st.button("Add 'Abu' (7 Days)"):
                 sheet = get_db_connection()
-                
-                # User
                 sheet.worksheet("Users").append_row(["ABU_PT", "Abu PartTime", 19, "abu@email.com", "123", "user", 8.0, 1.5])
-                
                 ws_att = sheet.worksheet("Attendance")
                 ws_pay = sheet.worksheet("Payroll")
-
                 for i in range(7):
                     day_str = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
-                    
-                    # Attendance (5 hours)
                     ws_att.append_row([int(time.time()), "ABU_PT", day_str, "12:00:00", "17:00:00", 5.0, 0.0])
-                    # Payroll (RM 40)
                     ws_pay.append_row([day_str, "ABU_PT", 5.0, 0.0, 40.0])
-                
-                st.toast("✅ Added Abu + 7 Days History!")
+                st.toast("✅ Added Abu!")
                 time.sleep(1)
                 st.rerun()
 
     st.divider()
 
-    # --- D. PAYROLL OVERVIEW (WITH CHARTS) ---
+    # --- D. PAYROLL OVERVIEW (WITH NEW TAB) ---
     st.subheader("📊 Payroll Overview")
     payroll_data = get_payroll_logs()
     
     if payroll_data:
         df = pd.DataFrame(payroll_data)
         
-        # Safe Calculation
+        # 1. Safe Calculations
         df['safe_pay'] = pd.to_numeric(df['total_pay'].astype(str).str.replace('RM','').str.strip(), errors='coerce').fillna(0)
+        df['safe_hours'] = pd.to_numeric(df['total_hours'].astype(str), errors='coerce').fillna(0)
         
         total_payout = df['safe_pay'].sum()
         c1, c2 = st.columns(2)
         c1.metric("Total Payout Pending", f"RM {total_payout:,.2f}")
         c2.metric("Total Shifts Completed", len(df))
         
-        # CHARTS
-        tab1, tab2 = st.tabs(["📈 Salary Statistics", "📜 Raw Data"])
+        # 2. TABS
+        tab1, tab2, tab3 = st.tabs(["📈 Salary Statistics", "📜 Raw Data", "👤 User Information"])
         
         with tab1:
             st.markdown("##### Total Salary by Employee")
-            # Group by User ID
             chart_data = df.groupby("user_id")["safe_pay"].sum()
             st.bar_chart(chart_data)
             
         with tab2:
-            st.dataframe(df.drop(columns=['safe_pay']))
+            st.dataframe(df.drop(columns=['safe_pay', 'safe_hours']))
             csv = df.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download CSV", csv, "payroll_data.csv", "text/csv")
+            st.download_button("📥 Download Raw CSV", csv, "payroll_data.csv", "text/csv")
+            
+        with tab3:
+            st.markdown("##### 👤 Employee Summary (Aggregated)")
+            
+            # Group by User ID to get Sums
+            df_grouped = df.groupby("user_id")[["safe_hours", "safe_pay"]].sum().reset_index()
+            
+            # Fetch Names from User Dictionary to match ID
+            all_users = fetch_users_dict()
+            df_grouped['name'] = df_grouped['user_id'].apply(lambda x: all_users.get(str(x).strip(), {}).get('name', 'Unknown'))
+            
+            # Reorder and Rename Columns
+            df_final = df_grouped[['user_id', 'name', 'safe_hours', 'safe_pay']]
+            df_final.columns = ['User ID', 'Name', 'Full Total Hours Worked', 'Full Total Salary (RM)']
+            
+            st.dataframe(df_final)
+            
+            # Separate Download Button for this summary
+            csv_sum = df_final.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Download Summary CSV", csv_sum, "employee_summary.csv", "text/csv")
 
     else:
         st.info("No payroll records found yet.")
@@ -449,6 +443,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
