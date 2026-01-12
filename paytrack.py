@@ -139,35 +139,28 @@ def add_cheerful_design():
 # --- 4. PAGE LOGIC ---
 
 def login_page():
-    add_login_page_design()
-    c1, c2, c3 = st.columns([3, 2, 3])
-    with c2:
-        try: st.image("logo.png", use_container_width=True)
-        except: pass
+    st.markdown("<h1 style='text-align: center; color: #4CAF50;'>PayTrack Login</h1>", unsafe_allow_html=True)
+    st.write("---")
     
-    col_left, col_center, col_right = st.columns([1, 2, 1])
-    with col_center:
-        st.write("")
-        user_id = st.text_input("User ID", placeholder="Enter your ID")
-        password = st.text_input("Password", type='password', placeholder="Enter your Password")
-        st.write("")
-        b_col1, b_col2 = st.columns(2, gap="small")
-        with b_col1:
-            if st.button("Log In", type="primary"):
-                try:
-                    users = get_all_users()
-                    valid_user = next((u for u in users if str(u['user_id']).strip() == user_id.strip() and str(u['password']) == password), None)
-                    if valid_user:
-                        st.session_state['logged_in_user'] = valid_user['user_id']
-                        st.session_state['role'] = valid_user['role']
-                        st.session_state['user_name'] = valid_user['name']
-                        st.rerun()
-                    else: st.error("Invalid credentials")
-                except Exception as e: st.error(f"Error: {e}")
-        with b_col2:
-            if st.button("Register"):
-                st.session_state['auth_mode'] = 'register'
+    # Simple Login Form (No Tabs)
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.info("👋 Welcome back! Please log in to continue.")
+        uid = st.text_input("User ID (e.g., 2311)")
+        password = st.text_input("Password", type="password")
+        
+        if st.button("Log In", use_container_width=True):
+            users = fetch_users()
+            # Check if user exists and password matches
+            if uid in users and str(users[uid]['password']) == str(password):
+                st.session_state['logged_in'] = True
+                st.session_state['user_id'] = uid
+                st.session_state['role'] = users[uid]['role']
+                st.session_state['rate'] = float(users[uid].get('rate', 0))
+                st.success(f"Welcome, {users[uid]['name']}!")
                 st.rerun()
+            else:
+                st.error("Invalid User ID or Password")
 
 def register_page():
     add_login_page_design()
@@ -285,29 +278,76 @@ def user_dashboard():
         st.rerun()
 
 def admin_dashboard():
-    add_cheerful_design()
-    st.title("Admin Panel")
+    st.title("Admin Dashboard 🛠️")
+    st.write(f"Welcome, Admin **{st.session_state['user_id']}**")
     
-    # Admin now looks at Payroll Data
-    pay_logs = get_payroll_logs()
+    # --- NEW: REGISTER USER SECTION ---
+    with st.expander("➕ Register New Employee", expanded=False):
+        st.markdown("### Create New Account")
+        with st.form("admin_register_form"):
+            new_name = st.text_input("Full Name")
+            new_uid = st.text_input("User ID (Unique)")
+            new_pass = st.text_input("Password", type="password")
+            new_role = st.selectbox("Role", ["Worker", "Admin"])
+            new_rate = st.number_input("Hourly Rate (RM)", value=10.0)
+            
+            submit_reg = st.form_submit_button("Create Account")
+            
+            if submit_reg:
+                if new_uid and new_pass and new_name:
+                    users = fetch_users()
+                    if new_uid in users:
+                        st.error("User ID already exists!")
+                    else:
+                        # Add to Google Sheets
+                        new_user_data = [new_uid, new_name, new_pass, new_role, new_rate]
+                        sheet_users.append_row(new_user_data)
+                        st.success(f"✅ User {new_name} ({new_uid}) created successfully!")
+                        st.cache_data.clear() # Refresh data
+                else:
+                    st.warning("Please fill in all fields.")
+
+    st.write("---")
+
+    # --- EXISTING: ANALYTICS & DATA ---
+    st.subheader("📊 Payroll Overview")
     
-    if pay_logs:
-        df = pd.DataFrame(pay_logs)
-        st.subheader("📋 Finalized Payroll")
-        st.dataframe(df)
+    # Load Data
+    df_logs = fetch_attendance()
+    
+    if not df_logs.empty:
+        # Calculate totals
+        total_payout = df_logs['Total Pay (RM)'].sum()
+        total_hours = df_logs['Hours Worked'].sum()
         
-        # Analytics
-        st.divider()
-        st.subheader("📈 Analytics")
-        if not df.empty:
-            # Clean currency string to float for charting
-            df['daily_pay_num'] = df['daily_pay'].astype(str).str.replace('RM','').str.strip().astype(float)
-            st.bar_chart(df, x="user_id", y="daily_pay_num", color="#2ecc71")
+        # Metrics
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total Payout", f"RM {total_payout:.2f}")
+        c2.metric("Total Hours", f"{total_hours:.1f} hrs")
+        c3.metric("Total Logs", len(df_logs))
+        
+        # Charts
+        tab1, tab2 = st.tabs(["💰 Salary by User", "📜 Raw Logs"])
+        
+        with tab1:
+            st.bar_chart(df_logs.groupby("User ID")["Total Pay (RM)"].sum())
+            
+        with tab2:
+            st.dataframe(df_logs)
+            
+            # Export Button
+            csv = df_logs.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                "📥 Download CSV",
+                csv,
+                "payroll_data.csv",
+                "text/csv"
+            )
     else:
-        st.info("No payroll data generated yet.")
+        st.info("No attendance records found yet.")
 
     if st.button("Logout"):
-        st.session_state.clear()
+        st.session_state['logged_in'] = False
         st.rerun()
 
 def main():
@@ -323,6 +363,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
