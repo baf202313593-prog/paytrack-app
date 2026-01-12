@@ -180,8 +180,14 @@ def admin_dashboard():
             new_name = st.text_input("Full Name")
             new_uid = st.text_input("User ID (Unique)")
             new_pass = st.text_input("Password", type="password")
-            new_role = st.selectbox("Role", ["user", "admin"]) # matching sheet roles
-            new_rate = st.number_input("Hourly Rate (RM)", value=10.0)
+            new_role = st.selectbox("Role", ["user", "admin"])
+            
+            # NOW YOU CAN ADJUST BOTH RATES DURING REGISTER
+            c1, c2 = st.columns(2)
+            with c1:
+                new_rate = st.number_input("Hourly Rate (RM)", value=10.0, step=0.5)
+            with c2:
+                new_ot = st.number_input("OT Multiplier (e.g. 1.5)", value=1.5, step=0.1)
             
             submit_reg = st.form_submit_button("Create Account")
             
@@ -193,8 +199,7 @@ def admin_dashboard():
                     else:
                         # Add to Google Sheets
                         # Order: [user_id, name, age, email, password, role, rate, ot_mult, resume]
-                        # We use placeholders for unused fields (Age, Email, Resume) to keep sheet structure
-                        new_user_data = [new_uid, new_name, 0, "N/A", new_pass, new_role, new_rate, 1.5, "None"]
+                        new_user_data = [new_uid, new_name, 0, "N/A", new_pass, new_role, new_rate, new_ot, "None"]
                         add_new_user(new_user_data)
                         st.success(f"✅ User {new_name} created successfully!")
                         time.sleep(1)
@@ -202,17 +207,56 @@ def admin_dashboard():
                 else:
                     st.warning("Please fill in all fields.")
 
+    # --- B. MANAGE EXISTING USERS (NEW FEATURE) ---
+    with st.expander("✏️ Update Employee Rates", expanded=False):
+        st.markdown("### Adjust Salary for Existing Staff")
+        
+        users = fetch_users_dict()
+        # Create a list of workers (exclude admins if you want)
+        worker_list = [u for u in users.values()]
+        
+        # Dropdown to pick a user
+        selected_user_id = st.selectbox(
+            "Select Employee", 
+            options=[u['user_id'] for u in worker_list],
+            format_func=lambda x: f"{x} - {users[str(x)]['name']}"
+        )
+        
+        if selected_user_id:
+            current_data = users[str(selected_user_id)]
+            
+            # Show current stats
+            st.info(f"Current Rate: **RM {current_data.get('rate')}** | OT: **{current_data.get('ot_multiplier')}x**")
+            
+            with st.form("update_rate_form"):
+                upd_rate = st.number_input("New Hourly Rate (RM)", value=float(current_data.get('rate', 0)), step=0.5)
+                upd_ot = st.number_input("New OT Multiplier", value=float(current_data.get('ot_multiplier', 1.5)), step=0.1)
+                
+                if st.form_submit_button("Update Rates"):
+                    # Find the row in Google Sheets and update it
+                    sheet = get_db_connection()
+                    ws = sheet.worksheet("Users")
+                    cell = ws.find(str(selected_user_id)) # Find the row with this ID
+                    
+                    if cell:
+                        # Assuming Rate is Col 7 and OT is Col 8 based on previous code
+                        # We use cell.row to get the row number
+                        ws.update_cell(cell.row, 7, upd_rate)
+                        ws.update_cell(cell.row, 8, upd_ot)
+                        st.success(f"Updated {current_data['name']}'s salary details!")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("User not found in database.")
+
     st.divider()
 
-    # --- B. PAYROLL DATA ---
+    # --- C. PAYROLL DATA ---
     st.subheader("📊 Payroll Overview")
     payroll_data = get_payroll_logs()
     
     if payroll_data:
         df = pd.DataFrame(payroll_data)
-        
-        # Calculate totals
-        # Convert currency strings to floats if necessary
         total_payout = sum(float(str(x).replace('RM','').strip()) for x in df['total_pay'])
         
         c1, c2 = st.columns(2)
@@ -221,7 +265,6 @@ def admin_dashboard():
         
         st.dataframe(df)
         
-        # Download CSV
         csv = df.to_csv(index=False).encode('utf-8')
         st.download_button("📥 Download CSV", csv, "payroll_data.csv", "text/csv")
     else:
@@ -230,7 +273,6 @@ def admin_dashboard():
     if st.button("Logout"):
         st.session_state.clear()
         st.rerun()
-
 def user_dashboard():
     add_dashboard_design()
     uid = str(st.session_state['user_id']).strip()
@@ -331,3 +373,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
