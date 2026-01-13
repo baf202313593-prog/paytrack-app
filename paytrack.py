@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta  # <--- Add timedelta
+from datetime import datetime, timedelta
 import time
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -8,7 +8,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 # --- 1. CONNECTION & SETUP ---
 def get_db_connection():
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-    # Ensure you have your secrets.toml set up correctly!
+    # Ensure you have your .streamlit/secrets.toml set up correctly!
     creds_dict = dict(st.secrets["gcp_service_account"])
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     client = gspread.authorize(creds)
@@ -30,26 +30,21 @@ def fetch_users_dict():
     """
     try:
         sheet = get_db_connection()
-        # Get all values from the "Users" worksheet
         rows = sheet.worksheet("Users").get_all_values()
         
         users_dict = {}
-        # Skip the header row (index 0)
         for row in rows[1:]:
             if len(row) > 0:
-                # FORCE ID TO STRING + REMOVE SPACES
                 user_id = str(row[0]).strip() 
-                
-                # Store data in a clear structure
                 users_dict[user_id] = {
                     "name": row[1],
-                    "age": row[2],      # Now capturing Age
-                    "email": row[3],    # Now capturing Email
+                    "age": row[2],
+                    "email": row[3],
                     "password": str(row[4]).strip(),
                     "role": row[5],
                     "rate": float(row[6]) if row[6] else 0.0,
                     "ot_multiplier": float(row[7]) if row[7] else 1.0,
-                    "resume": row[8] if len(row) > 8 else "No Resume" # Capture Resume Filename
+                    "resume": row[8] if len(row) > 8 else "No Resume"
                 }
         return users_dict
     except Exception as e:
@@ -75,65 +70,99 @@ def get_payroll_logs():
         return []
 
 def log_punch_in(user_id, date, time_in):
+    """Creates a new open session."""
     sheet = get_db_connection()
     worksheet = sheet.worksheet("Attendance")
     log_id = int(time.time())
-    # Structure: [ID, UserID, Date, InTime, OutTime, Hours, LogID]
-    # Note: Adjust columns based on your actual sheet headers
-    worksheet.append_row([log_id, user_id, date, time_in, "", 0.0])
+    # Structure: [log_id, user_id, date, in_time, out_time, hours_worked]
+    worksheet.append_row([log_id, str(user_id), date, time_in, "", ""])
 
 def log_punch_out(user_id, date, time_out):
+    """Closes the currently open session."""
     sheet = get_db_connection()
     worksheet = sheet.worksheet("Attendance")
     data = worksheet.get_all_records()
     
-    # Find the row index (gspread is 1-based, plus header)
     row_to_update = -1
-    
-    # Iterate to find ANY open session for this user (out_time is empty)
+    previous_in_time = ""
+
+    # Find the row that has NO out_time
     for i, row in enumerate(data):
-        # We look for the user AND an empty out_time
         if str(row['user_id']).strip() == str(user_id).strip() and row['out_time'] == "":
-            row_to_update = i + 2 # +2 accounts for 0-index list and 1-row header
+            row_to_update = i + 2  # +2 for header and 0-index
             previous_in_time = row['in_time']
-            # We found the open session, stop looking
             break
-            
+    
     if row_to_update != -1:
-        # Calculate Duration
-        fmt = "%H:%M:%S"
         try:
+            fmt = "%H:%M:%S"
             t_in = datetime.strptime(str(previous_in_time), fmt)
             t_out = datetime.strptime(time_out, fmt)
             
-            # Handle overnight shifts (if out time is smaller than in time)
             if t_out < t_in:
                 t_out += timedelta(days=1)
                 
             duration = (t_out - t_in).total_seconds() / 3600
         except:
-            duration = 0.0 # Error handling if time format is weird
-        
-        # Update Google Sheet
-        # Column 5 is Out Time, Column 6 is Hours Worked
+            duration = 0.0
+            
         worksheet.update_cell(row_to_update, 5, time_out)
         worksheet.update_cell(row_to_update, 6, round(duration, 2))
         return True
     return False
 
+def get_user_consolidated_history(user_id):
+    """
+    Merges Attendance (Sessions) and Payroll (Money) into one table.
+    Shows: Date | Morning (S1) | Evening (S2) | OT (S3) | Total Pay
+    """
+    att_logs = get_attendance_logs()
+    pay_logs = get_payroll_logs()
+    
+    my_att = [x for x in att_logs if str(x['user_id']).strip() == str(user_id).strip()]
+    my_pay = {x['date']: x['total_pay'] for x in pay_logs if str(x['user_id']).strip() == str(user_id).strip()}
+    
+    grouped = {}
+    for log in my_att:
+        d = log['date']
+        if d not in grouped:
+            grouped[d] = []
+        t_in = log.get('in_time', '?')
+        t_out = log.get('out_time', 'Active')
+        grouped[d].append(f"{t_in} - {t_out}")
+        
+    final_data = []
+    sorted_dates = sorted(grouped.keys(), reverse=True)
+    
+    for d in sorted_dates:
+        sessions = grouped[d]
+        s1 = sessions[0] if len(sessions) > 0 else "-"
+        s2 = sessions[1] if len(sessions) > 1 else "-"
+        s3 = sessions[2] if len(sessions) > 2 else "-"
+        
+        pay = my_pay.get(d, "Pending")
+        if pay != "Pending":
+            pay = f"RM {pay}"
+            
+        final_data.append({
+            "Date": d,
+            "Morning (Session 1)": s1,
+            "Evening (Session 2)": s2,
+            "Overtime (Session 3)": s3,
+            "Total Salary": pay
+        })
+        
+    return final_data
+
 def log_end_shift(user_id, date, rate, ot_mult):
-    # 1. Get all sessions for today
     logs = get_attendance_logs()
     today_sessions = [l for l in logs if str(l['user_id']).strip() == str(user_id).strip() and l['date'] == date]
     
-    # 2. Check if all sessions are closed (Must punch out first)
     if any(s['out_time'] == "" for s in today_sessions):
         return "ERROR_OPEN"
 
-    # 3. Sum total hours
     total_hours = sum(float(s['hours_worked']) for s in today_sessions if s['hours_worked'] != "")
     
-    # 4. Calculate Logic
     if total_hours > 8:
         norm = 8.0
         ot = total_hours - 8.0
@@ -143,16 +172,13 @@ def log_end_shift(user_id, date, rate, ot_mult):
         
     final_pay = (norm * rate) + (ot * rate * ot_mult)
     
-    # 5. Save to PAYROLL Tab
     sheet = get_db_connection()
     try:
         worksheet = sheet.worksheet("Payroll")
-        # Check for duplicates
         existing = worksheet.get_all_records()
         if any(str(r['user_id']).strip() == str(user_id).strip() and r['date'] == date for r in existing):
             return "ERROR_DUP"
             
-        # Headers: [Date, UserID, TotalHours, OTHours, TotalPay]
         worksheet.append_row([date, user_id, round(total_hours, 2), round(ot, 2), round(final_pay, 2)])
         return "SUCCESS"
     except:
@@ -192,9 +218,7 @@ def login_page():
         
         if st.button("Log In", use_container_width=True):
             users = fetch_users_dict()
-            
             if uid in users and str(users[uid]['password']) == str(password):
-                # SUCCESS
                 st.session_state['logged_in'] = True
                 st.session_state['user_id'] = uid
                 st.session_state['user_name'] = users[uid]['name']
@@ -210,240 +234,153 @@ def admin_dashboard():
     st.title("Admin Dashboard 🛠️")
     st.write(f"Logged in as: **{st.session_state['user_name']}**")
     
-    # --- A. REGISTER NEW USER (UPDATED) ---
     with st.expander("➕ Register New Employee", expanded=False):
         st.markdown("### Create New Account")
         with st.form("admin_register_form"):
-            # 1. Basic Info
             new_name = st.text_input("Full Name")
             new_uid = st.text_input("User ID (Unique)")
-            
             c1, c2 = st.columns(2)
             with c1:
                 new_age = st.number_input("Age", min_value=16, max_value=80, value=20)
             with c2:
                 new_pass = st.text_input("Password", type="password")
-
-            # 2. Contact & Resume
             new_email = st.text_input("Email Address")
-            new_resume = st.file_uploader("Upload Resume (Optional)", type=["pdf", "docx"])
+            new_resume = st.file_uploader("Upload Resume", type=["pdf", "docx"])
             
-            # 3. Job Role & Salary
             st.markdown("---")
             st.markdown("##### 💼 Job Details")
             new_role = st.selectbox("Role", ["user", "admin"])
-            
             c3, c4 = st.columns(2)
             with c3:
                 new_rate = st.number_input("Hourly Rate (RM)", value=10.0, step=0.5)
             with c4:
-                new_ot = st.number_input("OT Multiplier (e.g. 1.5)", value=1.5, step=0.1)
+                new_ot = st.number_input("OT Multiplier", value=1.5, step=0.1)
             
-            submit_reg = st.form_submit_button("Create Account")
-            
-            if submit_reg:
-                if new_uid and new_pass and new_name and new_email:
+            if st.form_submit_button("Create Account"):
+                if new_uid and new_pass and new_name:
                     users = fetch_users_dict()
-                    
-                    # Convert input ID to string for safety
                     clean_uid = str(new_uid).strip()
-                    
                     if clean_uid in users:
-                        st.error("User ID already exists! Please try a different one.")
+                        st.error("User ID already exists!")
                     else:
-                        # Handle Resume Name
                         resume_name = new_resume.name if new_resume else "N/A"
-                        
-                        # Prepare Data Row (9 Columns)
-                        # [ID, Name, Age, Email, Password, Role, Rate, OT, ResumeName]
-                        new_user_data = [
-                            clean_uid, 
-                            new_name, 
-                            new_age, 
-                            new_email, 
-                            new_pass, 
-                            new_role, 
-                            new_rate, 
-                            new_ot,
-                            resume_name
-                        ]
-                        
+                        new_user_data = [clean_uid, new_name, new_age, new_email, new_pass, new_role, new_rate, new_ot, resume_name]
                         add_new_user(new_user_data)
-                        st.success(f"✅ User {new_name} created successfully!")
-                        st.balloons()
+                        st.success(f"User {new_name} created!")
                         time.sleep(1)
                         st.rerun()
                 else:
-                    st.warning("Please fill in Name, ID, Password, and Email.")
+                    st.warning("Please fill in Name, ID, and Password.")
 
-    # --- B. MANAGE EXISTING USERS ---
     with st.expander("✏️ Update Employee Rates", expanded=False):
-        st.markdown("### Adjust Salary for Existing Staff")
         users = fetch_users_dict()
         worker_list = [u for u in users.values()]
-        
-        selected_user_id = st.selectbox(
-            "Select Employee", 
-            options=[u['user_id'] for u in worker_list] if worker_list else [], # Fix for empty list
-            format_func=lambda x: f"{x} - {users[str(x)]['name']}"
-        )
+        selected_user_id = st.selectbox("Select Employee", options=[u['user_id'] for u in worker_list] if worker_list else [], format_func=lambda x: f"{x} - {users[str(x)]['name']}")
         
         if selected_user_id:
             current_data = users[str(selected_user_id)]
-            st.info(f"Current Rate: **RM {current_data.get('rate')}** | OT: **{current_data.get('ot_multiplier')}x**")
-            
+            st.info(f"Current Rate: RM {current_data.get('rate')} | OT: {current_data.get('ot_multiplier')}x")
             with st.form("update_rate_form"):
-                upd_rate = st.number_input("New Hourly Rate (RM)", value=float(current_data.get('rate', 0)), step=0.5)
-                upd_ot = st.number_input("New OT Multiplier", value=float(current_data.get('ot_multiplier', 1.5)), step=0.1)
-                
+                upd_rate = st.number_input("New Hourly Rate", value=float(current_data.get('rate', 0)))
+                upd_ot = st.number_input("New OT Multiplier", value=float(current_data.get('ot_multiplier', 1.5)))
                 if st.form_submit_button("Update Rates"):
                     sheet = get_db_connection()
                     ws = sheet.worksheet("Users")
                     cell = ws.find(str(selected_user_id))
                     if cell:
-                        # Column 7 = Rate, Column 8 = OT
                         ws.update_cell(cell.row, 7, upd_rate)
                         ws.update_cell(cell.row, 8, upd_ot)
-                        st.success(f"Updated {current_data['name']}'s salary details!")
+                        st.success("Updated!")
                         time.sleep(1)
                         st.rerun()
 
     st.divider()
-
-    # --- C. PAYROLL OVERVIEW ---
     st.subheader("📊 Payroll Overview")
     payroll_data = get_payroll_logs()
-    
     if payroll_data:
         df = pd.DataFrame(payroll_data)
-        
         df['safe_pay'] = pd.to_numeric(df['total_pay'].astype(str).str.replace('RM','').str.strip(), errors='coerce').fillna(0)
-        df['safe_hours'] = pd.to_numeric(df['total_hours'].astype(str), errors='coerce').fillna(0)
         
-        total_payout = df['safe_pay'].sum()
-        c1, c2 = st.columns(2)
-        c1.metric("Total Payout Pending", f"RM {total_payout:,.2f}")
-        c2.metric("Total Shifts Completed", len(df))
+        st.metric("Total Payout Pending", f"RM {df['safe_pay'].sum():,.2f}")
         
-        tab1, tab2, tab3 = st.tabs(["📈 Salary Statistics", "📜 Raw Data", "👤 User Information"])
-        
-        with tab1:
-            st.markdown("##### Total Salary by Employee")
-            chart_data = df.groupby("user_id")["safe_pay"].sum()
-            st.bar_chart(chart_data)
-            
-        with tab2:
-            st.dataframe(df.drop(columns=['safe_pay', 'safe_hours']))
-            csv = df.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download CSV", csv, "payroll_data.csv", "text/csv")
-            
-        with tab3:
-            st.markdown("##### 👤 Employee Summary (Aggregated)")
-            df_grouped = df.groupby("user_id")[["safe_hours", "safe_pay"]].sum().reset_index()
-            all_users = fetch_users_dict()
-            df_grouped['name'] = df_grouped['user_id'].apply(lambda x: all_users.get(str(x).strip(), {}).get('name', 'Unknown'))
-            df_final = df_grouped[['user_id', 'name', 'safe_hours', 'safe_pay']]
-            df_final.columns = ['User ID', 'Name', 'Full Total Hours Worked', 'Full Total Salary (RM)']
-            st.dataframe(df_final)
-            csv_sum = df_final.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download Summary CSV", csv_sum, "employee_summary.csv", "text/csv")
-
+        t1, t2 = st.tabs(["Charts", "Raw Data"])
+        with t1:
+            st.bar_chart(df.groupby("user_id")["safe_pay"].sum())
+        with t2:
+            st.dataframe(df)
+            st.download_button("Download CSV", df.to_csv().encode('utf-8'), "payroll.csv")
     else:
-        st.info("No payroll records found yet.")
+        st.info("No payroll records yet.")
 
     if st.button("Logout"):
         st.session_state.clear()
         st.rerun()
-        
+
 def user_dashboard():
     add_dashboard_design()
     uid = str(st.session_state['user_id']).strip()
     name = st.session_state['user_name']
+    role = st.session_state['role']
     
-    # Refresh user data to get latest rate
-    users = fetch_users_dict()
-    my_data = users.get(uid, {})
-    try:
-        rate = float(my_data.get('rate', 0))
-        ot_mult = float(my_data.get('ot_multiplier', 1.5))
-    except:
-        rate, ot_mult = 0.0, 1.5
+    st.title(f"👋 Hello, {name}")
+    st.caption(f"User ID: {uid} | Role: {role.capitalize()}")
+    
+    logs = get_attendance_logs()
+    current_session = next((l for l in logs if str(l['user_id']).strip() == uid and l['out_time'] == ""), None)
+    is_clocked_in = current_session is not None
+    
+    if is_clocked_in:
+        st.success(f"🟢 STATUS: CLOCKED IN at {current_session['in_time']}")
+    else:
+        st.error("🔴 STATUS: CLOCKED OUT")
 
-    st.title(f"🌞 Hi, {name}!")
-    st.info(f"Rate: RM {rate}/hr | OT Multiplier: {ot_mult}x")
-    
+    st.markdown("---")
     today = datetime.now().strftime("%Y-%m-%d")
     now_time = datetime.now().strftime("%H:%M:%S")
+    users = fetch_users_dict()
+    user_info = users.get(uid, {})
+    rate = float(user_info.get('rate', 0.0))
+    ot_mult = float(user_info.get('ot_multiplier', 1.5))
 
-    # --- PUNCH CONTROLS ---
-    col1, col2, col3 = st.columns(3)
-
-    # 1. PUNCH IN
-    with col1:
-        if st.button("🚀 PUNCH IN"):
-            logs = get_attendance_logs()
-            active = any(str(l['user_id']).strip() == uid and l['date'] == today and l['out_time'] == "" for l in logs)
-            if active:
-                st.warning("You are already clocked in!")
-            else:
-                log_punch_in(uid, today, now_time)
-                st.success("Started working!")
-                time.sleep(1)
-                st.rerun()
-
-   # 2. PUNCH OUT
-    with col2:
-        if st.button("⏸️ PUNCH OUT"):
-            logs = get_attendance_logs()
-            
-            # CHECK: Is there ANY row where out_time is empty?
-            active_session = any(str(l['user_id']).strip() == uid and l['out_time'] == "" for l in logs)
-            
-            if active_session:
-                log_punch_out(uid, today, now_time)
-                st.success("Paused! Go take a break.")
-                time.sleep(1)
-                st.rerun()
-            else:
-                st.warning("You are not clocked in (or session already closed).")
-
-    # 3. END SHIFT
-    with col3:
-        if st.button("🏁 END SHIFT"):
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        if st.button("🟢 PUNCH IN", disabled=is_clocked_in, use_container_width=True):
+            log_punch_in(uid, today, now_time)
+            st.toast("Punch In Successful!")
+            time.sleep(1)
+            st.rerun()
+    with c2:
+        if st.button("⏸️ PUNCH OUT", disabled=not is_clocked_in, use_container_width=True):
+            log_punch_out(uid, today, now_time)
+            st.toast("Punch Out Successful!")
+            time.sleep(1)
+            st.rerun()
+    with c3:
+        if st.button("🏁 END SHIFT", disabled=is_clocked_in, use_container_width=True):
             result = log_end_shift(uid, today, rate, ot_mult)
             if result == "SUCCESS":
                 st.balloons()
-                st.success("Shift Ended! Salary calculated.")
+                st.success("Shift Closed! Salary Added.")
                 time.sleep(2)
                 st.rerun()
-            elif result == "ERROR_OPEN":
-                st.error("You are still punched in! Please Punch Out first.")
             elif result == "ERROR_DUP":
-                st.warning("You have already ended your shift for today.")
-            elif result == "ERROR_TAB":
-                st.error("Missing 'Payroll' tab in Google Sheets!")
-
-    st.divider()
+                st.warning("Shift already ended today!")
+            elif result == "ERROR_OPEN":
+                st.error("Punch Out first!")
     
-    # --- SHOW HISTORY ---
-    st.subheader("💰 My Completed Shifts")
-    pay_logs = get_payroll_logs()
-    my_pay = [p for p in pay_logs if str(p['user_id']).strip() == uid]
-    
-    if my_pay:
-        df = pd.DataFrame(my_pay)
-        st.dataframe(df)
-        total_earned = sum(float(str(x).replace('RM','').strip()) for x in df['total_pay'])
-        st.metric("Total Earnings", f"RM {total_earned:,.2f}")
+    st.markdown("### 📅 My Work History")
+    history_data = get_user_consolidated_history(uid)
+    if history_data:
+        st.table(pd.DataFrame(history_data))
     else:
-        st.info("No completed shifts yet.")
-        
+        st.info("No records found.")
+    
+    st.markdown("---")
     if st.button("Logout"):
         st.session_state.clear()
         st.rerun()
 
-# --- 5. MAIN APP ---
-
+# --- 5. MAIN EXECUTION ---
 def main():
     if 'logged_in' not in st.session_state:
         st.session_state['logged_in'] = False
@@ -458,14 +395,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
