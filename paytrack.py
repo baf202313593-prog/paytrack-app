@@ -59,7 +59,15 @@ def add_new_user(user_data):
 def get_attendance_logs():
     sheet = get_db_connection()
     worksheet = sheet.worksheet("Attendance")
-    return worksheet.get_all_records()
+    try:
+        # Tries to get records. If sheet is empty, this often fails.
+        return worksheet.get_all_records()
+    except gspread.exceptions.APIError:
+        # If an API error happens (likely empty sheet), return an empty list
+        return []
+    except Exception:
+        # Fallback for other errors
+        return []
 
 def get_payroll_logs():
     sheet = get_db_connection()
@@ -67,6 +75,7 @@ def get_payroll_logs():
         worksheet = sheet.worksheet("Payroll")
         return worksheet.get_all_records()
     except:
+        # This catches "Sheet not found" OR "Empty Sheet" errors
         return []
 
 def log_punch_in(user_id, date, time_in):
@@ -395,3 +404,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
