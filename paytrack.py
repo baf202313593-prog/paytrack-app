@@ -90,22 +90,32 @@ def log_punch_out(user_id, date, time_out):
     # Find the row index (gspread is 1-based, plus header)
     row_to_update = -1
     
-    # Iterate to find the open session
+    # Iterate to find ANY open session for this user (out_time is empty)
     for i, row in enumerate(data):
-        if str(row['user_id']).strip() == str(user_id).strip() and row['date'] == date and row['out_time'] == "":
+        # We look for the user AND an empty out_time
+        if str(row['user_id']).strip() == str(user_id).strip() and row['out_time'] == "":
             row_to_update = i + 2 # +2 accounts for 0-index list and 1-row header
             previous_in_time = row['in_time']
+            # We found the open session, stop looking
             break
             
     if row_to_update != -1:
         # Calculate Duration
         fmt = "%H:%M:%S"
-        t_in = datetime.strptime(previous_in_time, fmt)
-        t_out = datetime.strptime(time_out, fmt)
-        duration = (t_out - t_in).total_seconds() / 3600
+        try:
+            t_in = datetime.strptime(str(previous_in_time), fmt)
+            t_out = datetime.strptime(time_out, fmt)
+            
+            # Handle overnight shifts (if out time is smaller than in time)
+            if t_out < t_in:
+                t_out += timedelta(days=1)
+                
+            duration = (t_out - t_in).total_seconds() / 3600
+        except:
+            duration = 0.0 # Error handling if time format is weird
         
         # Update Google Sheet
-        # Column 5 is Out Time, Column 6 is Hours Worked (Adjust if your columns differ)
+        # Column 5 is Out Time, Column 6 is Hours Worked
         worksheet.update_cell(row_to_update, 5, time_out)
         worksheet.update_cell(row_to_update, 6, round(duration, 2))
         return True
@@ -381,18 +391,21 @@ def user_dashboard():
                 time.sleep(1)
                 st.rerun()
 
-    # 2. PUNCH OUT
+   # 2. PUNCH OUT
     with col2:
         if st.button("⏸️ PUNCH OUT"):
             logs = get_attendance_logs()
-            active_session = any(str(l['user_id']).strip() == uid and l['date'] == today and l['out_time'] == "" for l in logs)
+            
+            # CHECK: Is there ANY row where out_time is empty?
+            active_session = any(str(l['user_id']).strip() == uid and l['out_time'] == "" for l in logs)
+            
             if active_session:
                 log_punch_out(uid, today, now_time)
                 st.success("Paused! Go take a break.")
                 time.sleep(1)
                 st.rerun()
             else:
-                st.warning("You are not clocked in.")
+                st.warning("You are not clocked in (or session already closed).")
 
     # 3. END SHIFT
     with col3:
@@ -445,6 +458,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
