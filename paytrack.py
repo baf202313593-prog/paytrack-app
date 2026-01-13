@@ -24,10 +24,37 @@ def get_all_users_list():
     return worksheet.get_all_records()
 
 def fetch_users_dict():
-    """Converts list to dictionary for easy Login lookup: {'user_id': {data}}"""
-    records = get_all_users_list()
-    # Convert list of dicts to dict of dicts keyed by user_id (as string)
-    return {str(r['user_id']).strip(): r for r in records}
+    """
+    Fetches all users from Google Sheets and returns a dictionary.
+    Keys are User IDs (always as strings) for fast lookup.
+    """
+    try:
+        sheet = get_db_connection()
+        # Get all values from the "Users" worksheet
+        rows = sheet.worksheet("Users").get_all_values()
+        
+        users_dict = {}
+        # Skip the header row (index 0)
+        for row in rows[1:]:
+            if len(row) > 0:
+                # FORCE ID TO STRING + REMOVE SPACES
+                user_id = str(row[0]).strip() 
+                
+                # Store data in a clear structure
+                users_dict[user_id] = {
+                    "name": row[1],
+                    "age": row[2],      # Now capturing Age
+                    "email": row[3],    # Now capturing Email
+                    "password": str(row[4]).strip(),
+                    "role": row[5],
+                    "rate": float(row[6]) if row[6] else 0.0,
+                    "ot_multiplier": float(row[7]) if row[7] else 1.0,
+                    "resume": row[8] if len(row) > 8 else "No Resume" # Capture Resume Filename
+                }
+        return users_dict
+    except Exception as e:
+        st.error(f"Database Error: {e}")
+        return {}
 
 def add_new_user(user_data):
     sheet = get_db_connection()
@@ -173,37 +200,71 @@ def admin_dashboard():
     st.title("Admin Dashboard 🛠️")
     st.write(f"Logged in as: **{st.session_state['user_name']}**")
     
-    # --- A. REGISTER NEW USER ---
+    # --- A. REGISTER NEW USER (UPDATED) ---
     with st.expander("➕ Register New Employee", expanded=False):
         st.markdown("### Create New Account")
         with st.form("admin_register_form"):
+            # 1. Basic Info
             new_name = st.text_input("Full Name")
             new_uid = st.text_input("User ID (Unique)")
-            new_pass = st.text_input("Password", type="password")
-            new_role = st.selectbox("Role", ["user", "admin"])
             
             c1, c2 = st.columns(2)
             with c1:
-                new_rate = st.number_input("Hourly Rate (RM)", value=10.0, step=0.5)
+                new_age = st.number_input("Age", min_value=16, max_value=80, value=20)
             with c2:
+                new_pass = st.text_input("Password", type="password")
+
+            # 2. Contact & Resume
+            new_email = st.text_input("Email Address")
+            new_resume = st.file_uploader("Upload Resume (Optional)", type=["pdf", "docx"])
+            
+            # 3. Job Role & Salary
+            st.markdown("---")
+            st.markdown("##### 💼 Job Details")
+            new_role = st.selectbox("Role", ["user", "admin"])
+            
+            c3, c4 = st.columns(2)
+            with c3:
+                new_rate = st.number_input("Hourly Rate (RM)", value=10.0, step=0.5)
+            with c4:
                 new_ot = st.number_input("OT Multiplier (e.g. 1.5)", value=1.5, step=0.1)
             
             submit_reg = st.form_submit_button("Create Account")
             
             if submit_reg:
-                if new_uid and new_pass and new_name:
+                if new_uid and new_pass and new_name and new_email:
                     users = fetch_users_dict()
-                    if new_uid in users:
-                        st.error("User ID already exists!")
+                    
+                    # Convert input ID to string for safety
+                    clean_uid = str(new_uid).strip()
+                    
+                    if clean_uid in users:
+                        st.error("User ID already exists! Please try a different one.")
                     else:
-                        # Order: [user_id, name, age, email, password, role, rate, ot_multiplier]
-                        new_user_data = [new_uid, new_name, 0, "N/A", new_pass, new_role, new_rate, new_ot]
+                        # Handle Resume Name
+                        resume_name = new_resume.name if new_resume else "N/A"
+                        
+                        # Prepare Data Row (9 Columns)
+                        # [ID, Name, Age, Email, Password, Role, Rate, OT, ResumeName]
+                        new_user_data = [
+                            clean_uid, 
+                            new_name, 
+                            new_age, 
+                            new_email, 
+                            new_pass, 
+                            new_role, 
+                            new_rate, 
+                            new_ot,
+                            resume_name
+                        ]
+                        
                         add_new_user(new_user_data)
                         st.success(f"✅ User {new_name} created successfully!")
+                        st.balloons()
                         time.sleep(1)
                         st.rerun()
                 else:
-                    st.warning("Please fill in all fields.")
+                    st.warning("Please fill in Name, ID, Password, and Email.")
 
     # --- B. MANAGE EXISTING USERS ---
     with st.expander("✏️ Update Employee Rates", expanded=False):
@@ -213,7 +274,7 @@ def admin_dashboard():
         
         selected_user_id = st.selectbox(
             "Select Employee", 
-            options=[u['user_id'] for u in worker_list],
+            options=[u['user_id'] for u in worker_list] if worker_list else [], # Fix for empty list
             format_func=lambda x: f"{x} - {users[str(x)]['name']}"
         )
         
@@ -230,6 +291,7 @@ def admin_dashboard():
                     ws = sheet.worksheet("Users")
                     cell = ws.find(str(selected_user_id))
                     if cell:
+                        # Column 7 = Rate, Column 8 = OT
                         ws.update_cell(cell.row, 7, upd_rate)
                         ws.update_cell(cell.row, 8, upd_ot)
                         st.success(f"Updated {current_data['name']}'s salary details!")
@@ -238,14 +300,13 @@ def admin_dashboard():
 
     st.divider()
 
-    # --- C. PAYROLL OVERVIEW (CHARTS & SUMMARY) ---
+    # --- C. PAYROLL OVERVIEW ---
     st.subheader("📊 Payroll Overview")
     payroll_data = get_payroll_logs()
     
     if payroll_data:
         df = pd.DataFrame(payroll_data)
         
-        # 1. Safe Calculations (Prevents crashes if sheet has bad data)
         df['safe_pay'] = pd.to_numeric(df['total_pay'].astype(str).str.replace('RM','').str.strip(), errors='coerce').fillna(0)
         df['safe_hours'] = pd.to_numeric(df['total_hours'].astype(str), errors='coerce').fillna(0)
         
@@ -254,7 +315,6 @@ def admin_dashboard():
         c1.metric("Total Payout Pending", f"RM {total_payout:,.2f}")
         c2.metric("Total Shifts Completed", len(df))
         
-        # 2. TABS
         tab1, tab2, tab3 = st.tabs(["📈 Salary Statistics", "📜 Raw Data", "👤 User Information"])
         
         with tab1:
@@ -265,25 +325,16 @@ def admin_dashboard():
         with tab2:
             st.dataframe(df.drop(columns=['safe_pay', 'safe_hours']))
             csv = df.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download Raw CSV", csv, "payroll_data.csv", "text/csv")
+            st.download_button("📥 Download CSV", csv, "payroll_data.csv", "text/csv")
             
         with tab3:
             st.markdown("##### 👤 Employee Summary (Aggregated)")
-            
-            # Group by User ID to get Sums
             df_grouped = df.groupby("user_id")[["safe_hours", "safe_pay"]].sum().reset_index()
-            
-            # Fetch Names from User Dictionary to match ID
             all_users = fetch_users_dict()
             df_grouped['name'] = df_grouped['user_id'].apply(lambda x: all_users.get(str(x).strip(), {}).get('name', 'Unknown'))
-            
-            # Reorder and Rename Columns
             df_final = df_grouped[['user_id', 'name', 'safe_hours', 'safe_pay']]
             df_final.columns = ['User ID', 'Name', 'Full Total Hours Worked', 'Full Total Salary (RM)']
-            
             st.dataframe(df_final)
-            
-            # Separate Download Button for this summary
             csv_sum = df_final.to_csv(index=False).encode('utf-8')
             st.download_button("📥 Download Summary CSV", csv_sum, "employee_summary.csv", "text/csv")
 
@@ -394,6 +445,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
