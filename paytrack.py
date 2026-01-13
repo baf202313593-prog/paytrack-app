@@ -5,13 +5,17 @@ import time
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-# --- 1. CONNECTION & SETUP ---
+# --- 1. CONNECTION & SETUP (UPDATED) ---
+@st.cache_resource
 def get_db_connection():
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-    # Ensure you have your .streamlit/secrets.toml set up correctly!
+    
+    # Ensure you have your secrets.toml set up correctly!
     creds_dict = dict(st.secrets["gcp_service_account"])
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     client = gspread.authorize(creds)
+    
+    # Open the sheet once and keep it open
     sheet = client.open("paytrack_db")
     return sheet
 
@@ -404,4 +408,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
