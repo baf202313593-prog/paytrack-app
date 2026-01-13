@@ -167,36 +167,76 @@ def get_user_consolidated_history(user_id):
         
     return final_data
 
-def log_end_shift(user_id, date, rate, ot_mult):
+def log_end_shift(user_id, date, rate, ot_multiplier):
+    """
+    Calculates total hours for the day and saves to Payroll.
+    """
+    # 1. Get all logs
     logs = get_attendance_logs()
-    today_sessions = [l for l in logs if str(l['user_id']).strip() == str(user_id).strip() and l['date'] == date]
     
-    if any(s['out_time'] == "" for s in today_sessions):
-        return "ERROR_OPEN"
+    # 2. Filter for TODAY and THIS USER
+    # We use str().strip() to ensure " 1001 " matches "1001"
+    today_sessions = [
+        l for l in logs 
+        if str(l['user_id']).strip() == str(user_id).strip() 
+        and l['date'] == date
+    ]
+    
+    if not today_sessions:
+        return "ERROR_NO_LOGS"
 
-    total_hours = sum(float(s['hours_worked']) for s in today_sessions if s['hours_worked'] != "")
-    
+    # 3. Check if any session is still OPEN (User forgot to punch out)
+    for s in today_sessions:
+        if s['out_time'] == "" or s['out_time'] is None:
+            return "ERROR_OPEN"
+
+    # 4. Sum up total hours (HANDLE TEXT vs NUMBERS)
+    total_hours = 0.0
+    for s in today_sessions:
+        try:
+            # Force conversion to float. If empty string, use 0.0
+            h = float(s['hours_worked']) if s['hours_worked'] else 0.0
+            total_hours += h
+        except ValueError:
+            continue # Skip bad data rows
+
+    # 5. Calculate Salary
     if total_hours > 8:
-        norm = 8.0
-        ot = total_hours - 8.0
+        normal_hours = 8.0
+        ot_hours = total_hours - 8.0
     else:
-        norm = total_hours
-        ot = 0.0
+        normal_hours = total_hours
+        ot_hours = 0.0
         
-    final_pay = (norm * rate) + (ot * rate * ot_mult)
+    # Ensure rates are floats
+    rate = float(rate)
+    ot_multiplier = float(ot_multiplier)
+
+    final_pay = (normal_hours * rate) + (ot_hours * rate * ot_multiplier)
     
+    # 6. Save to Payroll Tab
     sheet = get_db_connection()
     try:
         worksheet = sheet.worksheet("Payroll")
-        existing = worksheet.get_all_records()
-        if any(str(r['user_id']).strip() == str(user_id).strip() and r['date'] == date for r in existing):
-            return "ERROR_DUP"
+        
+        # Check if already paid today
+        existing_payroll = worksheet.get_all_records()
+        for row in existing_payroll:
+            if str(row['user_id']).strip() == str(user_id).strip() and row['date'] == date:
+                return "ERROR_DUP"
             
-        worksheet.append_row([date, user_id, round(total_hours, 2), round(ot, 2), round(final_pay, 2)])
+        # Append [Date, UserID, TotalHours, OTHours, TotalPay]
+        worksheet.append_row([
+            date, 
+            str(user_id), 
+            round(total_hours, 2), 
+            round(ot_hours, 2), 
+            f"{final_pay:.2f}" # Save as clean string "85.50"
+        ])
         return "SUCCESS"
-    except:
+    except Exception as e:
+        print(f"Payroll Error: {e}") # Print error to terminal for debugging
         return "ERROR_TAB"
-
 # --- 3. UI STYLING ---
 
 def add_login_design():
@@ -408,5 +448,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
