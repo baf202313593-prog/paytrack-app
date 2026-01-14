@@ -77,17 +77,20 @@ def inject_full_dummy_data():
         ["dummy_02", "Bob Overtime", 30, "bob@test.com", "123", "user", 15.0, 1.5, "N/A"], # Works 10 hours
         ["dummy_03", "Charlie PartTime", 22, "charlie@test.com", "123", "user", 20.0, 2.0, "N/A"], # Works 4 hours
         ["dummy_04", "Diana Manager", 35, "diana@test.com", "123", "admin", 25.0, 1.5, "N/A"], # Admin
-        ["dummy_05", "Ethan Intern", 19, "ethan@test.com", "123", "user", 8.0, 1.0, "N/A"] # Low rate, no OT
+        ["dummy_05", "Ethan Intern", 19, "ethan@test.com", "123", "user", 8.0, 1.0, "N/A"], # Low rate
+        # NEW USER: Same hours as Bob, but higher rate
+        ["dummy_06", "Frank Comparison", 29, "frank@test.com", "123", "user", 22.0, 2.0, "N/A"] 
     ]
 
     # 3. Define Work Patterns (Hours worked per day)
     # [Start Time, Hours Worked]
     work_patterns = {
         "dummy_01": ("09:00:00", 8.0),  # Standard
-        "dummy_02": ("08:00:00", 10.0), # 2 Hours OT
+        "dummy_02": ("08:00:00", 10.0), # 10 Hours (2 OT)
         "dummy_03": ("13:00:00", 4.0),  # Part time
-        "dummy_04": ("09:00:00", 9.0),  # 1 Hour OT
+        "dummy_04": ("09:00:00", 9.0),  # 9 Hours
         "dummy_05": ("10:00:00", 6.0),  # Intern
+        "dummy_06": ("08:00:00", 10.0), # 10 Hours (SAME AS BOB)
     }
 
     attendance_rows = []
@@ -106,7 +109,12 @@ def inject_full_dummy_data():
             rate = user[6]
             ot_mult = user[7]
             
-            start_time_str, hours_worked = work_patterns[u_id]
+            # Get work pattern
+            if u_id in work_patterns:
+                start_time_str, hours_worked = work_patterns[u_id]
+            else:
+                # Fallback
+                start_time_str, hours_worked = ("09:00:00", 8.0)
             
             # Calculate Timestamps
             t_start = datetime.strptime(f"{date_str} {start_time_str}", "%Y-%m-%d %H:%M:%S")
@@ -465,16 +473,14 @@ def admin_dashboard():
             errors='coerce'
         ).fillna(0)
         
-        # --- NEW CODE: Map user_id to name ---
+        # MAP ID TO NAME
         all_users = fetch_users_dict()
-        # Create a new 'user_name' column
         df['user_name'] = df['user_id'].apply(lambda x: all_users.get(str(x).strip(), {}).get('name', str(x)))
         
         st.metric("Total Payout Pending", f"RM {df['safe_pay'].sum():,.2f}")
         
         t1, t2 = st.tabs(["Charts", "Raw Data"])
         with t1:
-            # CHANGED: groupby "user_name" instead of "user_id"
             st.bar_chart(df.groupby("user_name")["safe_pay"].sum())
         with t2:
             st.dataframe(df)
@@ -486,7 +492,7 @@ def admin_dashboard():
 
     # --- NEW SECTION: DEVELOPER TOOLS ---
     with st.expander("🛠️ Developer Tools (Dummy Data)", expanded=False):
-        st.warning("⚠️ This will add 5 fake users AND fill 3 days of Attendance/Payroll history.")
+        st.warning("⚠️ This will add 6 fake users (including comparison data) and fill 3 days of history.")
         if st.button("Generate Users + 3 Days History", use_container_width=True):
             with st.spinner("Injecting Users, Attendance, and Payroll..."):
                 result = inject_full_dummy_data()
