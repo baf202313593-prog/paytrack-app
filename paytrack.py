@@ -5,17 +5,17 @@ import time
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-# --- 1. CONNECTION & SETUP (CACHED) ---
+# --- 1. CONNECTION & SETUP ---
 @st.cache_resource
 def get_db_connection():
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
     
-    # Ensure you have your secrets.toml set up correctly!
+    # Ensure secrets.toml is set up
     creds_dict = dict(st.secrets["gcp_service_account"])
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     client = gspread.authorize(creds)
     
-    # Open the sheet once and keep it open
+    # Open the sheet
     sheet = client.open("paytrack_db")
     return sheet
 
@@ -24,7 +24,7 @@ def get_db_connection():
 def fetch_users_dict():
     """
     Fetches all users from Google Sheets and returns a dictionary.
-    Keys are User IDs (always as strings) for fast lookup.
+    FIXED: Now includes 'user_id' inside the data object to prevent KeyErrors.
     """
     try:
         sheet = get_db_connection()
@@ -36,7 +36,7 @@ def fetch_users_dict():
             if len(row) > 0:
                 user_id = str(row[0]).strip() 
                 users_dict[user_id] = {
-                    "user_id": user_id,  # CRITICAL FIX: Add user_id inside the object
+                    "user_id": user_id,  # <--- CRITICAL FIX ADDED HERE
                     "name": row[1],
                     "age": row[2],
                     "email": row[3],
@@ -58,8 +58,8 @@ def add_new_user(user_data):
 
 def get_attendance_logs():
     sheet = get_db_connection()
-    worksheet = sheet.worksheet("Attendance")
     try:
+        worksheet = sheet.worksheet("Attendance")
         return worksheet.get_all_records()
     except:
         return []
@@ -115,9 +115,6 @@ def log_punch_out(user_id, date, time_out):
     return False
 
 def get_user_consolidated_history(user_id):
-    """
-    Merges Attendance (Sessions) and Payroll (Money) into one table.
-    """
     att_logs = get_attendance_logs()
     pay_logs = get_payroll_logs()
     
@@ -157,9 +154,6 @@ def get_user_consolidated_history(user_id):
     return final_data
 
 def log_end_shift(user_id, date, rate, ot_multiplier):
-    """
-    Calculates total hours for the day and saves to Payroll.
-    """
     logs = get_attendance_logs()
     
     # Filter for TODAY and THIS USER
@@ -177,7 +171,7 @@ def log_end_shift(user_id, date, rate, ot_multiplier):
         if s['out_time'] == "" or s['out_time'] is None:
             return "ERROR_OPEN"
 
-    # Sum up total hours (HANDLE TEXT vs NUMBERS)
+    # Sum up total hours
     total_hours = 0.0
     for s in today_sessions:
         try:
@@ -272,6 +266,7 @@ def admin_dashboard():
     st.title("Admin Dashboard 🛠️")
     st.write(f"Logged in as: **{st.session_state['user_name']}**")
     
+    # SECTION 1: REGISTER
     with st.expander("➕ Register New Employee", expanded=False):
         st.markdown("### Create New Account")
         with st.form("admin_register_form"):
@@ -310,9 +305,10 @@ def admin_dashboard():
                 else:
                     st.warning("Please fill in Name, ID, and Password.")
 
+    # SECTION 2: UPDATE RATES
     with st.expander("✏️ Update Employee Rates", expanded=False):
         users = fetch_users_dict()
-        user_ids = list(users.keys())  # Safe list of IDs
+        user_ids = list(users.keys())  # FIXED: Safe list of IDs
         
         selected_user_id = st.selectbox(
             "Select Employee", 
@@ -339,76 +335,7 @@ def admin_dashboard():
 
     st.divider()
     
-    # --- C. GENERATE DUMMY DATA (SAFE BATCH MODE) ---
-    with st.expander("🪄 Generate Dummy Data (Report Mode)", expanded=False):
-        st.write("Click to safely generate test data (Batch Upload).")
-        col1, col2, col3 = st.columns(3)
-        
-        # Helper to generate rows without calling API inside loop
-        def generate_dummy_rows(uid, days, work_hours, ot_hours, salary):
-            att_rows = []
-            pay_rows = []
-            for i in range(days):
-                day_str = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
-                # Dummy Attendance (Morning shift + OT if applicable)
-                att_rows.append([int(time.time())+i, uid, day_str, "09:00:00", "18:00:00", work_hours])
-                # Dummy Payroll
-                pay_rows.append([day_str, uid, work_hours, ot_hours, salary])
-            return att_rows, pay_rows
-
-        # BUTTON 1: SITI
-        with col1:
-            if st.button("Add 'Siti'"):
-                sheet = get_db_connection()
-                try:
-                    # Check if exists (Simple check to avoid crash)
-                    cell = sheet.worksheet("Users").find("SITI_01")
-                    st.warning("Siti already exists!")
-                except:
-                    # 1. Add User
-                    sheet.worksheet("Users").append_row(["SITI_01", "Siti Worker", 24, "siti@email.com", "123", "user", 25.0, 1.5, "N/A"])
-                    # 2. Prepare Batch Data
-                    att_rows, pay_rows = generate_dummy_rows("SITI_01", 7, 8.0, 0.0, 200.0)
-                    # 3. Batch Write (One API call per tab)
-                    sheet.worksheet("Attendance").append_rows(att_rows)
-                    sheet.worksheet("Payroll").append_rows(pay_rows)
-                    st.toast("✅ Added Siti!")
-                    time.sleep(1)
-                    st.rerun()
-
-        # BUTTON 2: ALI
-        with col2:
-            if st.button("Add 'Ali'"):
-                sheet = get_db_connection()
-                try:
-                    cell = sheet.worksheet("Users").find("ALI_MGR")
-                    st.warning("Ali already exists!")
-                except:
-                    sheet.worksheet("Users").append_row(["ALI_MGR", "Ali Manager", 35, "ali@email.com", "123", "user", 50.0, 1.5, "N/A"])
-                    att_rows, pay_rows = generate_dummy_rows("ALI_MGR", 7, 9.0, 1.0, 475.0)
-                    sheet.worksheet("Attendance").append_rows(att_rows)
-                    sheet.worksheet("Payroll").append_rows(pay_rows)
-                    st.toast("✅ Added Ali!")
-                    time.sleep(1)
-                    st.rerun()
-
-        # BUTTON 3: ABU
-        with col3:
-            if st.button("Add 'Abu'"):
-                sheet = get_db_connection()
-                try:
-                    cell = sheet.worksheet("Users").find("ABU_PT")
-                    st.warning("Abu already exists!")
-                except:
-                    sheet.worksheet("Users").append_row(["ABU_PT", "Abu PartTime", 19, "abu@email.com", "123", "user", 8.0, 1.5, "N/A"])
-                    att_rows, pay_rows = generate_dummy_rows("ABU_PT", 7, 5.0, 0.0, 40.0)
-                    sheet.worksheet("Attendance").append_rows(att_rows)
-                    sheet.worksheet("Payroll").append_rows(pay_rows)
-                    st.toast("✅ Added Abu!")
-                    time.sleep(1)
-                    st.rerun()
-
-    st.divider()
+    # SECTION 3: PAYROLL
     st.subheader("📊 Payroll Overview")
     payroll_data = get_payroll_logs()
     if payroll_data:
