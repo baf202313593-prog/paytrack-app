@@ -56,6 +56,33 @@ def add_new_user(user_data):
     worksheet = sheet.worksheet("Users")
     worksheet.append_row(user_data)
 
+def inject_dummy_users():
+    """
+    Injects 5 dummy users into the Google Sheet with different rates.
+    """
+    # Data Structure: [user_id, name, age, email, password, role, rate, ot_multiplier, resume_path]
+    dummy_users = [
+        ["dummy_01", "Alice Test", 24, "alice@test.com", "123", "user", 12.0, 1.5, "N/A"],
+        ["dummy_02", "Bob Demo", 30, "bob@test.com", "123", "user", 15.5, 1.5, "N/A"],
+        ["dummy_03", "Charlie Dev", 22, "charlie@test.com", "123", "user", 25.0, 2.0, "N/A"],
+        ["dummy_04", "Diana Admin", 28, "diana@test.com", "123", "admin", 20.0, 1.5, "N/A"],
+        ["dummy_05", "Ethan Intern", 19, "ethan@test.com", "123", "user", 8.0, 1.0, "N/A"]
+    ]
+    
+    sheet = get_db_connection()
+    try:
+        worksheet = sheet.worksheet("Users")
+        # Check if dummy_01 already exists to prevent duplicates (optional safety)
+        existing = worksheet.col_values(1)
+        if "dummy_01" in existing:
+            return "EXISTS"
+            
+        worksheet.append_rows(dummy_users)
+        return "SUCCESS"
+    except Exception as e:
+        st.error(f"Error injecting data: {e}")
+        return "ERROR"
+
 def get_attendance_logs():
     sheet = get_db_connection()
     try:
@@ -266,12 +293,11 @@ def admin_dashboard():
     st.title("Admin Dashboard 🛠️")
     st.write(f"Logged in as: **{st.session_state['user_name']}**")
     
-    # --- ADDED: USER INFO TAB ---
+    # --- USER INFO TAB ---
     with st.expander("📂 Employee List / User Info", expanded=True):
         st.write("Overview of all registered employees.")
         users = fetch_users_dict()
         if users:
-            # Convert dictionary to a clean list for the table
             clean_list = []
             for uid, data in users.items():
                 clean_list.append({
@@ -377,6 +403,25 @@ def admin_dashboard():
             st.download_button("Download CSV", df.to_csv().encode('utf-8'), "payroll.csv")
     else:
         st.info("No payroll records yet.")
+
+    st.divider()
+
+    # --- NEW SECTION: DEVELOPER TOOLS ---
+    with st.expander("🛠️ Developer Tools (Dummy Data)", expanded=False):
+        st.warning("⚠️ This will add 5 fake users to your database automatically.")
+        if st.button("Generate 5 Dummy Users", use_container_width=True):
+            with st.spinner("Injecting data to Google Sheets..."):
+                result = inject_dummy_users()
+                if result == "SUCCESS":
+                    st.success("5 Dummy Users Added Successfully!")
+                    time.sleep(1)
+                    st.rerun()
+                elif result == "EXISTS":
+                    st.warning("Dummy data already exists (found dummy_01). Skipping to prevent duplicates.")
+                else:
+                    st.error("Failed to add dummy users.")
+
+    st.divider()
 
     if st.button("Logout"):
         st.session_state.clear()
