@@ -465,11 +465,17 @@ def admin_dashboard():
             errors='coerce'
         ).fillna(0)
         
+        # --- NEW CODE: Map user_id to name ---
+        all_users = fetch_users_dict()
+        # Create a new 'user_name' column
+        df['user_name'] = df['user_id'].apply(lambda x: all_users.get(str(x).strip(), {}).get('name', str(x)))
+        
         st.metric("Total Payout Pending", f"RM {df['safe_pay'].sum():,.2f}")
         
         t1, t2 = st.tabs(["Charts", "Raw Data"])
         with t1:
-            st.bar_chart(df.groupby("user_id")["safe_pay"].sum())
+            # CHANGED: groupby "user_name" instead of "user_id"
+            st.bar_chart(df.groupby("user_name")["safe_pay"].sum())
         with t2:
             st.dataframe(df)
             st.download_button("Download CSV", df.to_csv().encode('utf-8'), "payroll.csv")
