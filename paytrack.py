@@ -24,7 +24,7 @@ def get_db_connection():
 def fetch_users_dict():
     """
     Fetches all users from Google Sheets and returns a dictionary.
-    FIXED: Now includes 'user_id' inside the data object to prevent KeyErrors.
+    Includes 'user_id' inside the data object.
     """
     try:
         sheet = get_db_connection()
@@ -36,7 +36,7 @@ def fetch_users_dict():
             if len(row) > 0:
                 user_id = str(row[0]).strip() 
                 users_dict[user_id] = {
-                    "user_id": user_id,  # <--- CRITICAL FIX ADDED HERE
+                    "user_id": user_id,
                     "name": row[1],
                     "age": row[2],
                     "email": row[3],
@@ -266,6 +266,27 @@ def admin_dashboard():
     st.title("Admin Dashboard 🛠️")
     st.write(f"Logged in as: **{st.session_state['user_name']}**")
     
+    # --- ADDED: USER INFO TAB ---
+    with st.expander("📂 Employee List / User Info", expanded=True):
+        st.write("Overview of all registered employees.")
+        users = fetch_users_dict()
+        if users:
+            # Convert dictionary to a clean list for the table
+            clean_list = []
+            for uid, data in users.items():
+                clean_list.append({
+                    "ID": data['user_id'],
+                    "Name": data['name'],
+                    "Role": data['role'],
+                    "Email": data['email'],
+                    "Age": data['age'],
+                    "Rate (RM)": data['rate'],
+                    "OT Multiplier": data['ot_multiplier']
+                })
+            st.dataframe(pd.DataFrame(clean_list), use_container_width=True)
+        else:
+            st.warning("No users found.")
+
     # SECTION 1: REGISTER
     with st.expander("➕ Register New Employee", expanded=False):
         st.markdown("### Create New Account")
@@ -308,7 +329,7 @@ def admin_dashboard():
     # SECTION 2: UPDATE RATES
     with st.expander("✏️ Update Employee Rates", expanded=False):
         users = fetch_users_dict()
-        user_ids = list(users.keys())  # FIXED: Safe list of IDs
+        user_ids = list(users.keys()) 
         
         selected_user_id = st.selectbox(
             "Select Employee", 
