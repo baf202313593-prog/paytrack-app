@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 import time
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-import random
 
 # --- 1. CONNECTION & SETUP ---
 @st.cache_resource
@@ -56,112 +55,6 @@ def add_new_user(user_data):
     sheet = get_db_connection()
     worksheet = sheet.worksheet("Users")
     worksheet.append_row(user_data)
-
-def inject_full_dummy_data():
-    """
-    Injects Users, 3 Days of Attendance, and 3 Days of Payroll History.
-    """
-    sheet = get_db_connection()
-    ws_users = sheet.worksheet("Users")
-    ws_att = sheet.worksheet("Attendance")
-    ws_pay = sheet.worksheet("Payroll")
-
-    # 1. Check if dummy data exists to prevent duplicates
-    existing_users = ws_users.col_values(1)
-    if "dummy_01" in existing_users:
-        return "EXISTS"
-
-    # 2. Define Dummy Users [id, name, age, email, pass, role, rate, ot_mult, resume]
-    dummy_users = [
-        ["dummy_01", "Alice Standard", 24, "alice@test.com", "123", "user", 12.0, 1.5, "N/A"], # Standard 8 hours
-        ["dummy_02", "Bob Overtime", 30, "bob@test.com", "123", "user", 15.0, 1.5, "N/A"], # Works 10 hours
-        ["dummy_03", "Charlie PartTime", 22, "charlie@test.com", "123", "user", 20.0, 2.0, "N/A"], # Works 4 hours
-        ["dummy_04", "Diana Manager", 35, "diana@test.com", "123", "admin", 25.0, 1.5, "N/A"], # Admin
-        ["dummy_05", "Ethan Intern", 19, "ethan@test.com", "123", "user", 8.0, 1.0, "N/A"], # Low rate
-        # NEW USER: Same hours as Bob, but higher rate
-        ["dummy_06", "Frank Comparison", 29, "frank@test.com", "123", "user", 22.0, 2.0, "N/A"] 
-    ]
-
-    # 3. Define Work Patterns (Hours worked per day)
-    # [Start Time, Hours Worked]
-    work_patterns = {
-        "dummy_01": ("09:00:00", 8.0),  # Standard
-        "dummy_02": ("08:00:00", 10.0), # 10 Hours (2 OT)
-        "dummy_03": ("13:00:00", 4.0),  # Part time
-        "dummy_04": ("09:00:00", 9.0),  # 9 Hours
-        "dummy_05": ("10:00:00", 6.0),  # Intern
-        "dummy_06": ("08:00:00", 10.0), # 10 Hours (SAME AS BOB)
-    }
-
-    attendance_rows = []
-    payroll_rows = []
-    
-    # Generate dates for the last 3 days
-    dates = [datetime.now() - timedelta(days=i) for i in range(1, 4)] # Days 1, 2, 3 ago
-
-    log_id_counter = int(time.time())
-
-    for day in dates:
-        date_str = day.strftime("%Y-%m-%d")
-        
-        for user in dummy_users:
-            u_id = user[0]
-            rate = user[6]
-            ot_mult = user[7]
-            
-            # Get work pattern
-            if u_id in work_patterns:
-                start_time_str, hours_worked = work_patterns[u_id]
-            else:
-                # Fallback
-                start_time_str, hours_worked = ("09:00:00", 8.0)
-            
-            # Calculate Timestamps
-            t_start = datetime.strptime(f"{date_str} {start_time_str}", "%Y-%m-%d %H:%M:%S")
-            t_end = t_start + timedelta(hours=hours_worked)
-            end_time_str = t_end.strftime("%H:%M:%S")
-
-            # --- ATTENDANCE ROW ---
-            # [log_id, user_id, date, in_time, out_time, hours_worked]
-            attendance_rows.append([
-                log_id_counter,
-                u_id,
-                date_str,
-                start_time_str,
-                end_time_str,
-                hours_worked
-            ])
-            log_id_counter += 1
-
-            # --- PAYROLL ROW ---
-            # Logic: Split normal vs OT
-            if hours_worked > 8:
-                normal_h = 8.0
-                ot_h = hours_worked - 8.0
-            else:
-                normal_h = hours_worked
-                ot_h = 0.0
-            
-            total_pay = (normal_h * rate) + (ot_h * rate * ot_mult)
-
-            # [date, user_id, total_hours, ot_hours, total_pay]
-            payroll_rows.append([
-                date_str,
-                u_id,
-                hours_worked,
-                round(ot_h, 2),
-                f"{total_pay:.2f}"
-            ])
-
-    try:
-        # Batch inject everything
-        ws_users.append_rows(dummy_users)
-        ws_att.append_rows(attendance_rows)
-        ws_pay.append_rows(payroll_rows)
-        return "SUCCESS"
-    except Exception as e:
-        print(e)
-        return "ERROR"
 
 def get_attendance_logs():
     sheet = get_db_connection()
@@ -487,23 +380,6 @@ def admin_dashboard():
             st.download_button("Download CSV", df.to_csv().encode('utf-8'), "payroll.csv")
     else:
         st.info("No payroll records yet.")
-
-    st.divider()
-
-    # --- NEW SECTION: DEVELOPER TOOLS ---
-    with st.expander("🛠️ Developer Tools (Dummy Data)", expanded=False):
-        st.warning("⚠️ This will add 6 fake users (including comparison data) and fill 3 days of history.")
-        if st.button("Generate Users + 3 Days History", use_container_width=True):
-            with st.spinner("Injecting Users, Attendance, and Payroll..."):
-                result = inject_full_dummy_data()
-                if result == "SUCCESS":
-                    st.success("Full Dummy Data Added Successfully!")
-                    time.sleep(1)
-                    st.rerun()
-                elif result == "EXISTS":
-                    st.warning("Dummy data already exists (found dummy_01). Skipping to prevent duplicates.")
-                else:
-                    st.error("Failed to add dummy users.")
 
     st.divider()
 
